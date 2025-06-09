@@ -20,6 +20,7 @@ pub enum Token {
     In,         // in
     Inter,      // inter
     Nonempty,   // nonempty
+    Community,  // K
     
     // Identifiers and punctuation
     Identifier(String),
@@ -49,9 +50,6 @@ impl<'a> Lexer<'a> {
         self.current_char = self.input.next();
     }
     
-    fn peek(&mut self) -> Option<&char> {
-        self.input.peek()
-    }
     
     fn skip_whitespace(&mut self) {
         while let Some(ch) = self.current_char {
@@ -132,6 +130,7 @@ impl<'a> Lexer<'a> {
                     "in" => Ok(Token::In),
                     "inter" => Ok(Token::Inter),
                     "nonempty" => Ok(Token::Nonempty),
+                    "K" => Ok(Token::Community),
                     _ => Ok(Token::Identifier(identifier)),
                 }
             }
@@ -218,7 +217,7 @@ impl<'a> Parser<'a> {
                 self.advance()?;
                 let var = self.parse_identifier()?;
                 self.expect(Token::Dot)?;
-                let formula = self.parse_quantifier()?;
+                let formula = self.parse_formula()?;
                 
                 // Determine if it's a point or open quantifier based on the variable name
                 // Convention: point variables are lowercase, open variables are uppercase
@@ -232,7 +231,7 @@ impl<'a> Parser<'a> {
                 self.advance()?;
                 let var = self.parse_identifier()?;
                 self.expect(Token::Dot)?;
-                let formula = self.parse_quantifier()?;
+                let formula = self.parse_formula()?;
                 
                 // Determine if it's a point or open quantifier based on the variable name
                 if var.chars().next().unwrap().is_lowercase() {
@@ -264,7 +263,7 @@ impl<'a> Parser<'a> {
                 self.expect(Token::RightParen)?;
                 Ok(formula)
             }
-            Token::Identifier(_) | Token::Nonempty => {
+            Token::Identifier(_) | Token::Nonempty | Token::Community => {
                 self.parse_atomic()
             }
             _ => Err(format!("Unexpected token: {:?}", self.current_token)),
@@ -278,14 +277,25 @@ impl<'a> Parser<'a> {
                 let open_id = self.parse_identifier()?;
                 Ok(Formula::Atom(Atom::OpenNonempty(open_id)))
             }
+            Token::Community => {
+                self.advance()?;
+                let point_id = self.parse_identifier()?;
+                Ok(Formula::Atom(Atom::Community(point_id)))
+            }
             Token::Identifier(_) => {
                 let first_id = self.parse_identifier()?;
                 
                 match &self.current_token {
                     Token::In => {
                         self.advance()?;
-                        let second_id = self.parse_identifier()?;
-                        Ok(Formula::Atom(Atom::PointInOpen(first_id, second_id)))
+                        if matches!(self.current_token, Token::Community) {
+                            self.advance()?; // consume K
+                            let community_point = self.parse_identifier()?;
+                            Ok(Formula::Atom(Atom::PointInCommunity(first_id, community_point)))
+                        } else {
+                            let second_id = self.parse_identifier()?;
+                            Ok(Formula::Atom(Atom::PointInOpen(first_id, second_id)))
+                        }
                     }
                     Token::Inter => {
                         self.advance()?;
@@ -295,7 +305,7 @@ impl<'a> Parser<'a> {
                     _ => Err(format!("Expected 'in' or 'inter' after identifier, found {:?}", self.current_token)),
                 }
             }
-            _ => Err(format!("Expected identifier or 'nonempty', found {:?}", self.current_token)),
+            _ => Err(format!("Expected identifier, 'nonempty', or 'K', found {:?}", self.current_token)),
         }
     }
     
@@ -356,5 +366,71 @@ mod tests {
         let formula = parse_formula("AO X. EO Y. AP x. (x in X) || (X inter Y) => !(x in Y)").unwrap();
         // This should parse without error - detailed structure testing would be quite complex
         println!("{:?}", formula);
+    }
+    
+    #[test]
+    fn test_parse_precedence() {
+        // Test that !(nonempty X) || (X inter Y) parses correctly
+        let formula = parse_formula("!(nonempty X) || X inter Y").unwrap();
+        match formula {
+            Formula::Or(left, right) => {
+                // Left should be !(nonempty X)
+                match *left {
+                    Formula::Not(inner) => {
+                        match *inner {
+                            Formula::Atom(Atom::OpenNonempty(var)) => assert_eq!(var, "X"),
+                            _ => panic!("Expected OpenNonempty"),
+                        }
+                    }
+                    _ => panic!("Expected Not"),
+                }
+                // Right should be X inter Y
+                match *right {
+                    Formula::Atom(Atom::OpenIntersection(var1, var2)) => {
+                        assert_eq!(var1, "X");
+                        assert_eq!(var2, "Y");
+                    }
+                    _ => panic!("Expected OpenIntersection"),
+                }
+            }
+            _ => panic!("Expected Or, got {:?}", formula),
+        }
+    }
+
+    #[test]
+    fn test_parse_community_construction() {
+        // Test basic K p construction
+        let formula = parse_formula("K p").unwrap();
+        assert_eq!(formula, Formula::Atom(Atom::Community("p".to_string())));
+        
+        // Test x in K p construction
+        let formula = parse_formula("x in K p").unwrap();
+        assert_eq!(formula, Formula::Atom(Atom::PointInCommunity("x".to_string(), "p".to_string())));
+        
+        // Test in quantified context
+        let formula = parse_formula("AP p. K p").unwrap();
+        match formula {
+            Formula::ForAllPoints(var, inner) => {
+                assert_eq!(var, "p");
+                assert_eq!(*inner, Formula::Atom(Atom::Community("p".to_string())));
+            }
+            _ => panic!("Expected ForAllPoints"),
+        }
+        
+        // Test complex formula with community
+        let formula = parse_formula("AP p. EP q. q in K p").unwrap();
+        match formula {
+            Formula::ForAllPoints(p_var, p_inner) => {
+                assert_eq!(p_var, "p");
+                match *p_inner {
+                    Formula::ExistsPoints(q_var, q_inner) => {
+                        assert_eq!(q_var, "q");
+                        assert_eq!(*q_inner, Formula::Atom(Atom::PointInCommunity("q".to_string(), "p".to_string())));
+                    }
+                    _ => panic!("Expected ExistsPoints"),
+                }
+            }
+            _ => panic!("Expected ForAllPoints"),
+        }
     }
 }

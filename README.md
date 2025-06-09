@@ -175,6 +175,8 @@ The model checker supports a rich proposition language for describing properties
 - `x in X`: Point x is in open X
 - `X inter Y`: Open X intersects open Y (their intersection is non-empty)
 - `nonempty X`: Open X is nonempty (contains at least one point)
+- `K p`: Community of point p (returns an open set)
+- `x in K p`: Point x is in the community of point p
 
 ### Examples
 
@@ -199,6 +201,14 @@ AO X. AP x. x in X => (x in Y)
 # Nonempty properties
 EO X. nonempty X
 # "There exists a nonempty open X"
+
+# Community construction
+AP p. K p
+# "For all points p, the community of p is nonempty"
+
+# Point in community
+EP p. EP q. q in K p
+# "There exists a point p such that there exists a point q such that q is in the community of p"
 
 # Complex formula with mixed quantifiers
 AO X. EO Y. AP x. (x in X) || (X inter Y) => !(x in Y)
@@ -251,7 +261,7 @@ cargo run -- search -s 3 -o "results_size_{n}.txt"
 cargo run -- search -s 4 --starting-family "{{1}, {2}, {1,2}}"
 
 # Asymmetric input gets canonicalized before search
-cargo run -- search -s 3 --starting-family "{{3}, {1,3}, {2,3}}"
+cargo run -- search -s 3 --starting-family "{{3}, {1,3}, {2,3}, {1, 2, 3}}"
 # Uses canonicalized form: {{1}, {1,2}, {1,3}}
 
 # Search semitopologies with custom output
@@ -262,14 +272,14 @@ cargo run -- search -s 3 --semitopologies -o "semitopologies_{n}.txt"
 
 ```bash
 # Basic canonicalization (size auto-inferred)
-cargo run -- canon -f "{{2, 3}, {1, 3}, {1, 2}, {1, 2, 3}}"
+cargo run -- canon -f "{{}, {2, 3}, {1, 3}, {1, 2}, {1, 2, 3}}"
 
 # Canonicalize asymmetric family
-cargo run -- canon -f "{{3}, {1, 3}, {2, 3}, {1, 2, 3}}"
-# Output: {{1}, {1, 2}, {1, 3}, {1, 2, 3}}
+cargo run -- canon -f "{{}, {3}, {1, 3}, {2, 3}, {1, 2, 3}}"
+# Output: {{}, {1, 2}, {1, 3}, {2, 3}, {1, 2, 3}}
 
 # Specify size explicitly
-cargo run -- canon -f "{{1}, {2}}" -n 5
+cargo run -- canon -f "{{}, {1}, {2}, {1, 2}}" -n 5
 
 # Empty family
 cargo run -- canon -f "{}" -n 3
@@ -279,14 +289,20 @@ cargo run -- canon -f "{}" -n 3
 
 ```bash
 # Check simple existence property
-cargo run -- check -f "EO X. EP x. x in X" -s "{{1, 2}, {1, 3}}" -n 3
+cargo run -- check -f "EO X. EP x. x in X" -s "{{}, {1, 2}, {1, 3}, {1, 2, 3}}" -n 3
 
 # Check that a semitopology satisfies a universal property
-cargo run -- check -f "AO X. AP x. x in X => (X inter Y)" -s "{{1}, {2}, {1, 2}}" -n 2
+cargo run -- check -f "AO X. AP x. x in X => (X inter Y)" -s "{{}, {1}, {2}, {1, 2}}" -n 2
+
+# Check community properties
+cargo run -- check -f "AP p. K p" -s "{{}, {1, 2}, {1, 3}, {1, 2, 3}}" -n 3
+
+# Check point in community
+cargo run -- check -f "EP p. EP q. q in K p" -s "{{}, {1, 2}, {1, 3}, {1, 2, 3}}" -n 3
 
 # Complex formula verification
 cargo run -- check -f "AO X. EO Y. AP x. (x in X) || (X inter Y) => !(x in Y)" \
-  -s "{{1, 2}, {1, 3}, {2, 3}, {1, 2, 3}}" -n 3
+  -s "{{}, {1, 2}, {1, 3}, {2, 3}, {1, 2, 3}}" -n 3
 
 # Find semitopologies with specific properties (console output)
 cargo run -- find -f "EO X. EP x. x in X" -s 3 --semitopologies
@@ -361,11 +377,11 @@ Witnesses:
 ```
 
 ```bash
-cargo run -- check -f "EP x. AO X. x in X" -s "{{1, 2}, {1, 3}, {1, 2, 3}}"
+cargo run -- check -f "EP x. AO X. nonempty X => x in X" -s "{{}, {1, 2}, {1, 3}, {1, 2, 3}}"
 ```
 ```
 Formula: EO X. AP x. x in X
-Semitopology (n=3): {{1, 2}, {1, 3}, {1, 2, 3}}
+Semitopology (n=3): {{}, {1, 2}, {1, 3}, {1, 2, 3}}
 Result: ✓ SATISFIED
 Witnesses:
   X = {1, 2, 3}
@@ -373,11 +389,11 @@ Witnesses:
 
 **Check command failed result:**
 ```bash
-$ cargo run -- check -f "AO X. AP x. x in X" -s "{{1, 2}, {1, 3}, {1, 2, 3}}"
+$ cargo run -- check -f "AO X. AP x. x in X" -s "{{}, {1, 2}, {1, 3}, {1, 2, 3}}"
 ```
 ```
 Formula: AO X. AP x. x in X
-Semitopology (n=3): {{1, 2}, {1, 3}, {1, 2, 3}}
+Semitopology (n=3): {{}, {1, 2}, {1, 3}, {1, 2, 3}}
 Result: ✗ NOT SATISFIED
 ```
 
@@ -387,34 +403,19 @@ $ cargo run -- find -f "EO X. EP x. x in X" -s 3 -l 3 --semitopologies
 ```
 ```
 Searching for semitopologies satisfying formula: EO X. EP x. x in X
---- Generating semitopologies satisfying formula for n=3 (Console Output) ---
-  Starting family: {{1, 2, 3}}
-{{1, 2, 3}}
-{{1}, {1, 2, 3}}
-{{1, 2}, {1, 2, 3}}
+--- Streaming semitopologies satisfying formula for n=3 ---
+  Log interval: 10000. Cache size: 10000. Limit: 3.
+  Starting family: {{}, {1, 2, 3}}
 
-Results for n=3:
-Total semitopologies satisfying formula: 3
-```
+{{}, {1, 2, 3}}
+{{}, {1}, {1, 2, 3}}
+{{}, {1, 2}, {1, 2, 3}}
 
-```bash
-$ cargo run -- find -f "EP x. AO X. x in X" -s 3 -l 10
-```
-```
-Searching for semitopologies satisfying formula: EP x. AO X. x in X
---- Streaming semiframes satisfying formula for n=3 ---
-  Log interval: 10000. Cache size: 10000. Limit: 10.
-  Starting family: {{1, 2, 3}}
-
-{{1}, {1, 2}, {1, 2, 3}}
-{{1, 3}, {2, 3}, {1, 2, 3}}
-{{1}, {1, 2}, {1, 3}, {1, 2, 3}}
-
-  Search complete.
+  Search stopped: reached limit of 3 families.
   Done.
 
 Results for n=3:
-Total semiframes satisfying formula: 3
+Total semitopologies satisfying formula: 3
 ```
 
 ### Performance Characteristics

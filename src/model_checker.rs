@@ -3,19 +3,6 @@
 use crate::canon::Family;
 use std::collections::HashMap;
 
-/// Variable identifiers for points and opens
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum Variable {
-    Point(String),
-    Open(String),
-}
-
-/// Terms in the proposition language
-#[derive(Debug, Clone, PartialEq)]
-pub enum Term {
-    PointVar(String),
-    OpenVar(String),
-}
 
 /// Atomic propositions
 #[derive(Debug, Clone, PartialEq)]
@@ -26,6 +13,10 @@ pub enum Atom {
     OpenIntersection(String, String),
     /// Open X is nonempty
     OpenNonempty(String),
+    /// Community of point p (K p) - checks if community is nonempty
+    Community(String),
+    /// Point x is in community of point p (x in K p)
+    PointInCommunity(String, String),
 }
 
 /// Proposition formulas
@@ -128,14 +119,74 @@ impl ModelCheckResult {
 pub struct ModelChecker {
     n: usize,
     family: Family,
+    antipode_cache: Option<HashMap<u32, u32>>,
 }
 
 impl ModelChecker {
     pub fn new(n: usize, family: Family) -> Self {
-        // Ensure the family includes the empty set (represented as 0)
-        let mut complete_family = family;
-        complete_family.insert(0);
-        Self { n, family: complete_family }
+        Self { 
+            n, 
+            family,
+            antipode_cache: None,
+        }
+    }
+    
+    /// Build the antipode table: anti[O] = ⋃{P ∈ τ | P ∩ O = ∅}
+    fn build_antipodes(&self) -> HashMap<u32, u32> {
+        let mut anti: HashMap<u32, u32> = HashMap::new();
+        for &o in &self.family {
+            anti.insert(o, 0);                   // allocate entry
+        }
+        for &o in &self.family {
+            for &q in &self.family {
+                if o & q == 0 {                  // disjoint
+                    *anti.get_mut(&o).unwrap() |= q;
+                }
+            }
+        }
+        anti
+    }
+    
+    /// Calculate community of point p using cached antipode table
+    fn community_with_cache(
+        &self,
+        p: usize,
+        anti: &HashMap<u32, u32>,
+    ) -> u32 {
+        if p == 0 || p > self.n || self.family.is_empty() {
+            return 0;
+        }
+
+        let universe: u32 = if self.n == 32 { u32::MAX } else { (1u32 << self.n) - 1 };
+        let p_bit: u32     = 1u32 << (p - 1);
+
+        // 1) gather everything separable from p via the pre-computed table
+        let mut separable: u32 = 0;
+        for &o in &self.family {
+            if o & p_bit != 0 {
+                separable |= anti[&o];           // O ∋ p   ⇒   throw away anti(O)
+            }
+        }
+
+        // 2) inseparable class
+        let class: u32 = universe & !separable;
+
+        // 3) interior
+        let mut community: u32 = 0;
+        for &o in &self.family {
+            if o & !class == 0 {
+                community |= o;
+            }
+        }
+        community
+    }
+    
+    /// Ensure antipode cache is built and return reference to it
+    fn get_antipode_cache(&mut self) -> &HashMap<u32, u32> {
+        if self.antipode_cache.is_none() {
+            self.antipode_cache = Some(self.build_antipodes());
+        }
+        self.antipode_cache.as_ref().unwrap()
     }
     
     /// Check if a point is in an open (subset)
@@ -159,7 +210,7 @@ impl ModelChecker {
     }
     
     /// Evaluate an atomic proposition under an assignment
-    fn eval_atom(&self, atom: &Atom, assignment: &Assignment) -> bool {
+    fn eval_atom(&mut self, atom: &Atom, assignment: &Assignment) -> bool {
         match atom {
             Atom::PointInOpen(point_var, open_var) => {
                 if let (Some(&point), Some(&open)) = (
@@ -188,11 +239,34 @@ impl ModelChecker {
                     false // Undefined variables are false
                 }
             }
+            Atom::Community(point_var) => {
+                if let Some(&point) = assignment.points.get(point_var) {
+                    let anti = self.get_antipode_cache().clone();
+                    let community = self.community_with_cache(point, &anti);
+                    // The community construction creates an open, which should be stored
+                    // For now, we'll return true if the community is nonempty
+                    community != 0
+                } else {
+                    false // Undefined variables are false
+                }
+            }
+            Atom::PointInCommunity(point_var, community_point_var) => {
+                if let (Some(&point), Some(&community_point)) = (
+                    assignment.points.get(point_var),
+                    assignment.points.get(community_point_var)
+                ) {
+                    let anti = self.get_antipode_cache().clone();
+                    let community = self.community_with_cache(community_point, &anti);
+                    self.point_in_open(point, community)
+                } else {
+                    false // Undefined variables are false
+                }
+            }
         }
     }
     
     /// Evaluate a formula under an assignment, returning witnesses for existential quantifiers
-    pub fn eval_formula(&self, formula: &Formula, assignment: &Assignment) -> ModelCheckResult {
+    pub fn eval_formula(&mut self, formula: &Formula, assignment: &Assignment) -> ModelCheckResult {
         match formula {
             Formula::Atom(atom) => {
                 if self.eval_atom(atom, assignment) {
@@ -264,7 +338,8 @@ impl ModelChecker {
                 ModelCheckResult::false_result()
             }
             Formula::ForAllOpens(var, f) => {
-                for &open in &self.family {
+                let family_vec: Vec<u32> = self.family.iter().cloned().collect();
+                for open in family_vec {
                     let new_assignment = assignment.clone_with_open(var.clone(), open);
                     let result = self.eval_formula(f, &new_assignment);
                     if !result.satisfied {
@@ -274,7 +349,8 @@ impl ModelChecker {
                 ModelCheckResult::true_result()
             }
             Formula::ExistsOpens(var, f) => {
-                for &open in &self.family {
+                let family_vec: Vec<u32> = self.family.iter().cloned().collect();
+                for open in family_vec {
                     let new_assignment = assignment.clone_with_open(var.clone(), open);
                     let result = self.eval_formula(f, &new_assignment);
                     if result.satisfied {
@@ -287,8 +363,321 @@ impl ModelChecker {
     }
     
     /// Check if a formula is satisfied by the semitopology
-    pub fn check(&self, formula: &Formula) -> ModelCheckResult {
+    pub fn check(&mut self, formula: &Formula) -> ModelCheckResult {
         let assignment = Assignment::new();
         self.eval_formula(formula, &assignment)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeSet;
+
+    #[test]
+    fn test_build_antipodes_basic() {
+        // Example from documentation comment
+        let mut family = BTreeSet::new();
+        family.insert(0b00); // {}
+        family.insert(0b01); // {1}
+        family.insert(0b10); // {2}
+        family.insert(0b11); // {1,2}
+        
+        let checker = ModelChecker::new(2, family.clone());
+        let anti = checker.build_antipodes();
+        
+        // anti[{}] = union of sets disjoint from {} = all points (0b11 for n=2)
+        assert_eq!(anti[&0b00], 0b11);
+        // anti[{1}] = union of sets disjoint from {1} = {} ∪ {2}
+        assert_eq!(anti[&0b01], 0b10);
+        // anti[{2}] = union of sets disjoint from {2} = {} ∪ {1}  
+        assert_eq!(anti[&0b10], 0b01);
+        // anti[{1,2}] = union of sets disjoint from {1,2} = {}
+        assert_eq!(anti[&0b11], 0b00);
+    }
+
+    #[test]
+    fn test_community_simple_case() {
+        // Test community calculation on τ = {∅, {1}, {2}, {1,2}}
+        let mut family = BTreeSet::new();
+        family.insert(0b00); // {}
+        family.insert(0b01); // {1}
+        family.insert(0b10); // {2}  
+        family.insert(0b11); // {1,2}
+        
+        let checker = ModelChecker::new(2, family.clone());
+        let anti = checker.build_antipodes();
+        
+        // For K_1:
+        // Opens containing 1: {1}, {1,2}
+        // Separable from 1: anti[{1}] ∪ anti[{1,2}] = {2} ∪ {} = {2}
+        // Class of 1: {1,2} \ {2} = {1}
+        // Interior of {1}: {} ∪ {1} = {1}
+        let k1 = checker.community_with_cache(1, &anti);
+        assert_eq!(k1, 0b01); // {1}
+        
+        // For K_2: 
+        // Opens containing 2: {2}, {1,2}
+        // Separable from 2: anti[{2}] ∪ anti[{1,2}] = {1} ∪ {} = {1}
+        // Class of 2: {1,2} \ {1} = {2}
+        // Interior of {2}: {} ∪ {2} = {2}
+        let k2 = checker.community_with_cache(2, &anti);
+        assert_eq!(k2, 0b10); // {2}
+    }
+
+    #[test]
+    fn test_community_sierpinski_case() {
+        // Test the famous τ = {∅, {1,2}, {1,3}, {1,2,3}} semitopology
+        let mut family = BTreeSet::new();
+        family.insert(0b000); // {}
+        family.insert(0b011); // {1,2}
+        family.insert(0b101); // {1,3}
+        family.insert(0b111); // {1,2,3}
+        
+        let checker = ModelChecker::new(3, family.clone());
+        let anti = checker.build_antipodes();
+        
+        // For K_1:
+        // Opens containing 1: {1,2}, {1,3}, {1,2,3}
+        // Separable from 1: anti[{1,2}] ∪ anti[{1,3}] ∪ anti[{1,2,3}] = {} ∪ {} ∪ {} = {}
+        // Class of 1: {1,2,3} \ {} = {1,2,3}
+        // Interior of {1,2,3}: entire family union = {1,2,3}
+        let k1 = checker.community_with_cache(1, &anti);
+        assert_eq!(k1, 0b111); // {1,2,3}
+        
+        // For K_2:
+        // Opens containing 2: {1,2}, {1,2,3}
+        // Separable from 2: anti[{1,2}] ∪ anti[{1,2,3}] = {} ∪ {} = {}
+        // Class of 2: {1,2,3} \ {} = {1,2,3}
+        // Interior of {1,2,3}: entire family union = {1,2,3}
+        let k2 = checker.community_with_cache(2, &anti);
+        assert_eq!(k2, 0b111); // {1,2,3}
+        
+        // For K_3:
+        // Opens containing 3: {1,3}, {1,2,3}
+        // Separable from 3: anti[{1,3}] ∪ anti[{1,2,3}] = {} ∪ {} = {}
+        // Class of 3: {1,2,3} \ {} = {1,2,3}
+        // Interior of {1,2,3}: entire family union = {1,2,3}
+        let k3 = checker.community_with_cache(3, &anti);
+        assert_eq!(k3, 0b111); // {1,2,3}
+    }
+
+    #[test]
+    fn test_community_disconnected_case() {
+        // Test on τ = {∅, {1}, {2}, {3}, {1,2}} where point 3 is isolated
+        let mut family = BTreeSet::new();
+        family.insert(0b000); // {}
+        family.insert(0b001); // {1}
+        family.insert(0b010); // {2}
+        family.insert(0b100); // {3}
+        family.insert(0b011); // {1,2}
+        
+        let checker = ModelChecker::new(3, family.clone());
+        let anti = checker.build_antipodes();
+        
+        // First verify antipodes are correct
+        assert_eq!(anti[&0b000], 0b111); // anti[{}] = everything
+        assert_eq!(anti[&0b001], 0b110); // anti[{1}] = {2,3}
+        assert_eq!(anti[&0b010], 0b101); // anti[{2}] = {1,3}
+        assert_eq!(anti[&0b100], 0b011); // anti[{3}] = {1,2}
+        assert_eq!(anti[&0b011], 0b100); // anti[{1,2}] = {3}
+        
+        // For K_1:
+        // Opens containing 1: {1}, {1,2}
+        // Separable: anti[{1}] ∪ anti[{1,2}] = {2,3} ∪ {3} = {2,3}
+        // Class of 1: {1,2,3} \ {2,3} = {1}
+        // Interior: {} ∪ {1} = {1}
+        let k1 = checker.community_with_cache(1, &anti);
+        assert_eq!(k1, 0b001); // {1}
+        
+        // For K_2:
+        // Opens containing 2: {2}, {1,2}
+        // Separable: anti[{2}] ∪ anti[{1,2}] = {1,3} ∪ {3} = {1,3}
+        // Class of 2: {1,2,3} \ {1,3} = {2}
+        // Interior: {} ∪ {2} = {2}
+        let k2 = checker.community_with_cache(2, &anti);
+        assert_eq!(k2, 0b010); // {2}
+        
+        // For K_3:
+        // Opens containing 3: {3}
+        // Separable: anti[{3}] = {1,2}
+        // Class of 3: {1,2,3} \ {1,2} = {3}
+        // Interior: {} ∪ {3} = {3}
+        let k3 = checker.community_with_cache(3, &anti);
+        assert_eq!(k3, 0b100); // {3}
+    }
+
+    #[test]
+    fn test_community_degenerate_cases() {
+        // Test empty family
+        let family = BTreeSet::new();
+        let checker = ModelChecker::new(2, family);
+        let anti = checker.build_antipodes();
+        assert_eq!(checker.community_with_cache(1, &anti), 0);
+        
+        // Test single point family
+        let mut family = BTreeSet::new();
+        family.insert(0b0); // {}
+        let checker = ModelChecker::new(1, family);
+        let anti = checker.build_antipodes();
+        assert_eq!(checker.community_with_cache(1, &anti), 0); // K_1 = {}
+        
+        // Test indiscrete topology 
+        let mut family = BTreeSet::new();
+        family.insert(0b00); // {}
+        family.insert(0b11); // {1,2}
+        let checker = ModelChecker::new(2, family);
+        let anti = checker.build_antipodes();
+        
+        // Both points have community = entire space
+        assert_eq!(checker.community_with_cache(1, &anti), 0b11);
+        assert_eq!(checker.community_with_cache(2, &anti), 0b11);
+    }
+
+    #[test]
+    fn test_community_edge_cases() {
+        let mut family = BTreeSet::new();
+        family.insert(0b001); // {1}
+        let checker = ModelChecker::new(2, family);
+        let anti = checker.build_antipodes();
+        
+        // Invalid point indices
+        assert_eq!(checker.community_with_cache(0, &anti), 0);
+        assert_eq!(checker.community_with_cache(3, &anti), 0);
+        
+        // Empty family edge case
+        // Note: community_with_cache must not index anti when the family is empty
+        let empty_family = BTreeSet::new();
+        let empty_checker = ModelChecker::new(2, empty_family);
+        let empty_anti = empty_checker.build_antipodes();
+        assert_eq!(empty_checker.community_with_cache(1, &empty_anti), 0);
+    }
+
+    #[test]
+    fn test_community_properties() {
+        // Test basic community properties on τ = {∅, {1}, {1,2}}
+        let mut family = BTreeSet::new();
+        family.insert(0b00); // {}
+        family.insert(0b01); // {1}
+        family.insert(0b11); // {1,2}
+        
+        let checker = ModelChecker::new(2, family.clone());
+        let anti = checker.build_antipodes();
+        
+        let k1 = checker.community_with_cache(1, &anti);
+        let k2 = checker.community_with_cache(2, &anti);
+        
+        // K_1 should contain point 1
+        assert_ne!(k1 & 0b01, 0); // 1 ∈ K_1
+        
+        // Every community should be an open set (member of family)
+        // This relies on the union-closed hypothesis of semitopologies
+        assert!(family.contains(&k1) || k1 == 0);
+        assert!(family.contains(&k2) || k2 == 0);
+        
+        // In this topology τ = {∅, {1}, {1,2}}:
+        // K_1: class = {1,2}, interior = {1,2} 
+        // K_2: class = {1,2}, interior = {1,2}
+        assert_eq!(k1, 0b11);
+        assert_eq!(k2, 0b11);
+    }
+
+    #[test]
+    fn test_community_without_empty_set() {
+        // Test a family that does not contain the empty set
+        let mut family = BTreeSet::new();
+        family.insert(0b01); // {1}
+        family.insert(0b11); // {1,2}
+        
+        let checker = ModelChecker::new(2, family.clone());
+        let anti = checker.build_antipodes();
+        
+        // Verify antipodes for family without empty set
+        assert_eq!(anti[&0b01], 0b00); // anti[{1}] = {} (no other disjoint sets)
+        assert_eq!(anti[&0b11], 0b00); // anti[{1,2}] = {} (no disjoint sets)
+        
+        // Both points should have community {1,2} since that's the whole universe
+        // that can be reached without going through separating sets
+        let k1 = checker.community_with_cache(1, &anti);
+        let k2 = checker.community_with_cache(2, &anti);
+        
+        assert_eq!(k1, 0b11); // K_1 = {1,2}
+        assert_eq!(k2, 0b11); // K_2 = {1,2}
+    }
+
+    #[test]
+    fn test_community_max_size() {
+        // Test with n = 32 (highest encodable in u32) to exercise universe = u32::MAX path
+        let mut family = BTreeSet::new();
+        family.insert(0); // {}
+        family.insert(1); // {1}
+        family.insert(u32::MAX); // {1,2,...,32}
+        
+        let checker = ModelChecker::new(32, family.clone());
+        let anti = checker.build_antipodes();
+        
+        // Verify the universe = u32::MAX path is exercised
+        let k1 = checker.community_with_cache(1, &anti);
+        
+        // In this case, point 1 is in {1} and {1,2,...,32}
+        // anti[{1}] includes everything disjoint from {1} = {}
+        // anti[{1,2,...,32}] = {} (nothing is disjoint from the full set)
+        // So separable = {}, class = all points, community = entire family union
+        assert_eq!(k1, u32::MAX); // Should be the full set
+    }
+
+    #[test] 
+    fn test_community_reference_comparison() {
+        // Compare against a reference implementation for a small random case
+        fn reference_community(p: usize, n: usize, family: &Family) -> u32 {
+            if p == 0 || p > n || family.is_empty() {
+                return 0;
+            }
+            
+            let universe = if n == 32 { u32::MAX } else { (1u32 << n) - 1 };
+            let p_bit = 1u32 << (p - 1);
+            
+            // Find all sets separable from p (slow O(|τ|²) method)
+            let mut separable = 0u32;
+            for &o in family {
+                if o & p_bit != 0 { // o contains p
+                    for &q in family {
+                        if o & q == 0 { // q is disjoint from o
+                            separable |= q;
+                        }
+                    }
+                }
+            }
+            
+            let class = universe & !separable;
+            
+            // Find interior of class
+            let mut community = 0u32;
+            for &o in family {
+                if o & !class == 0 { // o ⊆ class
+                    community |= o;
+                }
+            }
+            community
+        }
+        
+        // Test case: τ = {∅, {1}, {2}, {1,2}, {3}, {1,3}}
+        let mut family = BTreeSet::new();
+        family.insert(0b000); // {}
+        family.insert(0b001); // {1}
+        family.insert(0b010); // {2}
+        family.insert(0b011); // {1,2}
+        family.insert(0b100); // {3}
+        family.insert(0b101); // {1,3}
+        
+        let checker = ModelChecker::new(3, family.clone());
+        let anti = checker.build_antipodes();
+        
+        // Compare fast and reference implementations
+        for p in 1..=3 {
+            let fast_result = checker.community_with_cache(p, &anti);
+            let ref_result = reference_community(p, 3, &family);
+            assert_eq!(fast_result, ref_result, "Mismatch for point {}", p);
+        }
     }
 }

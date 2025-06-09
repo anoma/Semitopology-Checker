@@ -267,7 +267,7 @@ fn handle_check_command(formula_str: String, semitopology_str: String, size: Opt
     println!("Semitopology (n={}): {}", n, family_to_str(&family, n));
     
     // Create model checker and check the formula
-    let checker = ModelChecker::new(n, family);
+    let mut checker = ModelChecker::new(n, family);
     let result = checker.check(&formula);
     
     if result.satisfied {

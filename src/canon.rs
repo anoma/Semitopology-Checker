@@ -24,14 +24,10 @@ fn int_to_set(i: u32, n: usize) -> HashSet<usize> {
 /// Creates a human-readable string representation of a family of sets
 pub fn family_to_str(family: &Family, n: usize) -> String {
     if family.is_empty() {
-        return "{{}}".to_string(); // Include empty set in empty family
+        return "{}".to_string();
     }
     
-    // Ensure the empty set is included in the family for display
-    let mut complete_family = family.clone();
-    complete_family.insert(0);
-    
-    let mut sorted_ints: Vec<u32> = complete_family.iter().cloned().collect();
+    let mut sorted_ints: Vec<u32> = family.iter().cloned().collect();
     sorted_ints.sort();
     
     let mut set_list: Vec<Vec<usize>> = sorted_ints
@@ -91,9 +87,7 @@ pub fn parse_family_str(family_str: &str, n: usize) -> Result<Family, String> {
                 if brace_count == 0 {
                     // End of a set, parse it
                     let set_mask = parse_single_set(&current_set, n)?;
-                    if set_mask != 0 { // Don't add empty set (represented as 0)
-                        family.insert(set_mask);
-                    }
+                    family.insert(set_mask);
                     current_set.clear();
                     
                     // Skip comma and whitespace

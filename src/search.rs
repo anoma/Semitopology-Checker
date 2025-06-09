@@ -98,7 +98,11 @@ fn process_and_dump_batch(
             families_to_process.clear();
             return Ok(true); // Hit limit
         }
-        writeln!(outfile, "{}", family_to_str(fam, n))?;
+        // Add empty set as part of search process after distinguished point check
+        let mut complete_family = (*fam).clone();
+        complete_family.insert(0);
+        
+        writeln!(outfile, "{}", family_to_str(&complete_family, n))?;
         *total_found_counter += 1;
     }
     
@@ -269,8 +273,12 @@ fn process_and_dump_batch_with_formula(
                 return false;
             }
             
+            // Add empty set as part of search process after distinguished point check
+            let mut complete_family = (*fam).clone();
+            complete_family.insert(0);
+            
             // Check if the family satisfies the formula
-            let checker = ModelChecker::new(n, (*fam).clone());
+            let mut checker = ModelChecker::new(n, complete_family);
             checker.check(formula).satisfied
         })
         .collect();
@@ -452,9 +460,13 @@ fn dfs_explore_with_formula_console(
     };
     
     if base_filter {
-        let checker = ModelChecker::new(n, family.clone());
+        // Add empty set as part of search process after distinguished point check
+        let mut complete_family = family.clone();
+        complete_family.insert(0);
+        
+        let mut checker = ModelChecker::new(n, complete_family.clone());
         if checker.check(formula).satisfied {
-            println!("{}", family_to_str(family, n));
+            println!("{}", family_to_str(&complete_family, n));
             *total_found_counter += 1;
             
             if limit > 0 && *total_found_counter >= limit {
