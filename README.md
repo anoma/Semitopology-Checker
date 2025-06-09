@@ -1,17 +1,19 @@
 # Semiframes and Semitopologies Checker
 
-A Rust tool for finding semiframes and semitopologies using nauty for canonical graph labeling.
+A Rust tool for finding semiframes and semitopologies using nauty for canonical graph labeling, with model checking capabilities for proposition logic.
 
 ## Overview
 
 This program finds all distinguished semiframes (union-closed covers that don't contain the empty set and distinguish all their points) or semitopologies up to isomorphism for a given size n using a depth-first search with batching and caching.
 
-Actual model checking will be for a future release.
+Additionally, it provides model checking functionality to verify semitopologies against logical propositions and search for semitopologies satisfying specific formulas.
 
 ## Features
 
 - **Semiframes Search**: Find all distinguished semiframes where every element is distinguished
 - **Semitopologies Search**: Find all valid semitopologies (union-closed families)
+- **Model Checking**: Verify if semitopologies satisfy logical propositions
+- **Formula Search**: Find semitopologies that satisfy specific logical formulas
 - **Canonicalization**: Canonicalize individual semitopologies to their standard form
 - **Canonical Graph Labeling**: Uses nauty library for efficient isomorphism checking
 - **Batched Processing**: Memory-efficient processing with configurable batch sizes
@@ -30,10 +32,12 @@ cargo build --release
 
 ## Usage
 
-This tool has two main commands:
+This tool has four main commands:
 
 - **`search`**: Find semiframes or semitopologies systematically
 - **`canon`**: Canonicalize individual semitopologies to standard form
+- **`check`**: Check if a semitopology satisfies a given logical formula
+- **`find`**: Find semitopologies that satisfy a given logical formula
 
 Use `cargo run -- <command> --help` for detailed help on each command.
 
@@ -63,6 +67,35 @@ cargo run -- canon -f "{{1, 2}}" -n 4
 cargo run -- canon -f "{{3}, {1, 3}, {2, 3}, {1, 2, 3}}"
 ```
 
+### Check Command
+
+```bash
+# Check if a semitopology satisfies a simple formula
+cargo run -- check -f "EO X. EP x. x in X" -s "{{1, 2}, {1, 3}, {1, 2, 3}}" -n 3
+
+# Check a complex formula with universal and existential quantifiers
+cargo run -- check -f "AO X. EO Y. AP x. (x in X) || (X inter Y) => !(x in Y)" -s "{{1, 2}, {1, 3}, {2, 3}, {1, 2, 3}}" -n 3
+
+# Check with auto-inferred size
+cargo run -- check -f "x in X" -s "{{1, 2, 3}}"
+```
+
+### Find Command
+
+```bash
+# Find one semitopology satisfying a formula (default)
+cargo run -- find -f "EO X. EP x. x in X" -s 3 --semitopologies
+
+# Find multiple semitopologies satisfying a formula
+cargo run -- find -f "EO X. EP x. x in X" -s 3 -l 5 --semitopologies
+
+# Save results to file instead of console output
+cargo run -- find -f "AO X. x in X" -s 3 -o "results_n{n}.txt" --semitopologies
+
+# Search for semiframes satisfying a formula
+cargo run -- find -f "EP x. AO X. x in X" -s 4 -l 10
+```
+
 ### Search Command Options
 
 | Option | Short | Description | Default |
@@ -83,12 +116,90 @@ cargo run -- canon -f "{{3}, {1, 3}, {2, 3}, {1, 2, 3}}"
 | `--family` | `-f` | The semitopology to canonicalize (e.g., "{{1, 2}, {1, 3}}") | Yes |
 | `--size` | `-n` | Size n for the semitopology (auto-inferred if not provided) | No |
 
+### Check Command Options
+
+| Option | Short | Description | Required |
+|--------|-------|-------------|----------|
+| `--formula` | `-f` | The logical formula to check (e.g., "EO X. EP x. x in X") | Yes |
+| `--semitopology` | `-s` | The semitopology to check against (e.g., "{{1, 2}, {1, 3}}") | Yes |
+| `--size` | `-n` | Size n for the semitopology (auto-inferred if not provided) | No |
+
+### Find Command Options
+
+| Option | Short | Description | Default |
+|--------|-------|-------------|---------|
+| `--formula` | `-f` | The logical formula to satisfy (e.g., "EO X. EP x. x in X") | Required |
+| `--size` | `-s` | Size to search (number or range like "3-5") | `1-6` |
+| `--limit` | `-l` | Maximum number of results to find | `1` |
+| `--output` | `-o` | Output file pattern (optional, use {n} for size placeholder) | Console output |
+| `--cache-size` | `-c` | Maximum cache size (0 to disable) | `10000` |
+| `--semitopologies` | | Search for semitopologies instead of semiframes | `false` |
+| `--starting-family` | | Starting family as semitopology | `{{1,2,...,n}}` |
+| `--batch-size` | `-b` | Batch size for processing | `100000` |
+| `--log-interval` | | Log interval for progress reporting | `10000` |
+
 ### Global Options
 
 | Option | Short | Description |
 |--------|-------|-------------|
 | `--help` | `-h` | Show help message |
 | `--version` | `-V` | Show version information |
+
+## Proposition Language
+
+The model checker supports a rich proposition language for describing properties of semitopologies.
+
+### Syntax
+
+**Variables:**
+- Point variables: lowercase letters (e.g., `x`, `y`, `p`)
+- Open variables: uppercase letters (e.g., `X`, `Y`, `U`)
+
+**Logical Operators:**
+- `&&`: Logical AND
+- `||`: Logical OR  
+- `=>`: Logical implication
+- `!`: Logical negation
+- `()`: Parentheses for grouping
+
+**Quantifiers:**
+- `AP x.`: Universal quantification over points (for all points x)
+- `EP x.`: Existential quantification over points (there exists a point x)
+- `AO X.`: Universal quantification over opens (for all opens X)
+- `EO X.`: Existential quantification over opens (there exists an open X)
+
+**Primitive Relations:**
+- `x in X`: Point x is in open X
+- `X inter Y`: Open X intersects open Y (their intersection is non-empty)
+
+### Examples
+
+```
+# Simple membership
+x in X
+
+# Intersection
+X inter Y
+
+# Existential statements
+EO X. EP x. x in X
+# "There exists an open X such that there exists a point x such that x is in X"
+
+# Universal statements  
+AO X. AP x. x in X => (x in Y)
+# "For all opens X, for all points x, if x is in X then x is in Y"
+
+# Complex formula with mixed quantifiers
+AO X. EO Y. AP x. (x in X) || (X inter Y) => !(x in Y)
+# "For all opens X, there exists an open Y such that for all points x,
+#  if either x is in X or X intersects Y, then x is not in Y"
+
+# Conjunction and disjunction
+(x in X) && (y in Y) || (X inter Y)
+
+# Implication chains
+(x in X) => (X inter Y) => (y in Z)
+```
 
 ### Example Commands
 
@@ -153,6 +264,33 @@ cargo run -- canon -f "{{1}, {2}}" -n 5
 cargo run -- canon -f "{}" -n 3
 ```
 
+#### Model Checking Examples
+
+```bash
+# Check simple existence property
+cargo run -- check -f "EO X. EP x. x in X" -s "{{1, 2}, {1, 3}}" -n 3
+
+# Check that a semitopology satisfies a universal property
+cargo run -- check -f "AO X. AP x. x in X => (X inter Y)" -s "{{1}, {2}, {1, 2}}" -n 2
+
+# Complex formula verification
+cargo run -- check -f "AO X. EO Y. AP x. (x in X) || (X inter Y) => !(x in Y)" \
+  -s "{{1, 2}, {1, 3}, {2, 3}, {1, 2, 3}}" -n 3
+
+# Find semitopologies with specific properties (console output)
+cargo run -- find -f "EO X. EP x. x in X" -s 3 --semitopologies
+
+# Find multiple results
+cargo run -- find -f "AO X. AP x. x in X" -s 3 -l 5 --semitopologies
+
+# Save model checking results to file
+cargo run -- find -f "EP x. EO X. x in X" -s 3 -l 10 \
+  -o "satisfying_semitopologies_n{n}.txt" --semitopologies
+
+# Search for semiframes satisfying a formula
+cargo run -- find -f "AP x. EO X. x in X" -s 4 -l 3
+```
+
 ## Expected Outputs
 
 ### Semiframes vs Semitopologies
@@ -185,6 +323,89 @@ For `n=3` semitopologies (first 5):
 {{2}, {3}, {2, 3}, {1, 2, 3}}
 ```
 
+### Model Checking Outputs
+
+**Check command successful result:**
+```bash
+$ cargo run -- check -f "EO X. EP x. x in X" -s "{{1, 2}, {1, 3}, {1, 2, 3}}"
+```
+```
+Formula: EO X. EP x. x in X
+Semitopology (n=3): {{1, 2}, {1, 3}, {1, 2, 3}}
+Result: ✓ SATISFIED
+Witnesses:
+  x = point 1
+  X = {1, 2}
+```
+
+```bash
+cargo run -- check -f "EO X. AP x. x in X" -s "{{1, 2}, {1, 3}, {1, 2, 3}}"
+```
+```
+Formula: EP x. AO X. x in X
+Semitopology (n=3): {{1, 2}, {1, 3}, {1, 2, 3}}
+Result: ✓ SATISFIED
+Witnesses:
+  x = point 1
+```
+
+```bash
+cargo run -- check -f "EP x. AO X. x in X" -s "{{1, 2}, {1, 3}, {1, 2, 3}}"
+```
+```
+Formula: EO X. AP x. x in X
+Semitopology (n=3): {{1, 2}, {1, 3}, {1, 2, 3}}
+Result: ✓ SATISFIED
+Witnesses:
+  X = {1, 2, 3}
+```
+
+**Check command failed result:**
+```bash
+$ cargo run -- check -f "AO X. AP x. x in X" -s "{{1, 2}, {1, 3}, {1, 2, 3}}"
+```
+```
+Formula: AO X. AP x. x in X
+Semitopology (n=3): {{1, 2}, {1, 3}, {1, 2, 3}}
+Result: ✗ NOT SATISFIED
+```
+
+**Find command console output:**
+```bash
+$ cargo run -- find -f "EO X. EP x. x in X" -s 3 -l 3 --semitopologies
+```
+```
+Searching for semitopologies satisfying formula: EO X. EP x. x in X
+--- Generating semitopologies satisfying formula for n=3 (Console Output) ---
+  Starting family: {{1, 2, 3}}
+{{1, 2, 3}}
+{{1}, {1, 2, 3}}
+{{1, 2}, {1, 2, 3}}
+
+Results for n=3:
+Total semitopologies satisfying formula: 3
+```
+
+```bash
+$ cargo run -- find -f "EP x. AO X. x in X" -s 3 -l 10
+```
+```
+Searching for semitopologies satisfying formula: EP x. AO X. x in X
+--- Streaming semiframes satisfying formula for n=3 ---
+  Log interval: 10000. Cache size: 10000. Limit: 10.
+  Starting family: {{1, 2, 3}}
+
+{{1}, {1, 2}, {1, 2, 3}}
+{{1, 3}, {2, 3}, {1, 2, 3}}
+{{1}, {1, 2}, {1, 3}, {1, 2, 3}}
+
+  Search complete.
+  Done.
+
+Results for n=3:
+Total semiframes satisfying formula: 3
+```
+
 ### Performance Characteristics
 
 | Size | Actual Semiframes Count | Time (measured) | Memory Usage |
@@ -194,7 +415,7 @@ For `n=3` semitopologies (first 5):
 | n=3  | 10                     | <0.01s          | Trivia       |
 | n=4  | 138                    | <0.01s          | Low          |
 | n=5  | 14,005                 | ~0.43s          | Medium       |
-| n=6  | >5,000,000             | >1 hour         | High (may run out of memory) |
+| n=6  | >34,000,000            | hours?          | High (may run out of memory) |
 | n=7  | Hundreds of billions?  | ???             | Very High (hope you have a lot of ram) |
 
 *Performance measured on the current implementation. Times may vary by system.*

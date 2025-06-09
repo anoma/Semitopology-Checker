@@ -2,10 +2,14 @@
 
 mod search;
 mod canon;
+mod model_checker;
+mod parser;
 
 use clap::{Parser, Subcommand};
 use search::{Config, gen_fam};
 use canon::{Family, parse_family_str, canonicalize_once, family_to_str, infer_size_from_family};
+use model_checker::{ModelChecker, Witness};
+use parser::parse_formula;
 use std::time::Instant;
 
 #[derive(Parser)]
@@ -62,6 +66,58 @@ enum Commands {
         /// Size n for the semitopology (auto-inferred if not provided)
         #[arg(short = 'n', long)]
         size: Option<usize>,
+    },
+    /// Check if a semitopology satisfies a given formula
+    Check {
+        /// The formula to check (e.g., "AO X. EO Y. AP x. (x in X) || (X inter Y) => !(x in Y)")
+        #[arg(short = 'f', long)]
+        formula: String,
+        
+        /// The semitopology to check against (e.g., "{{1, 2}, {1, 3}, {2, 3}, {1, 2, 3}}")
+        #[arg(short = 's', long)]
+        semitopology: String,
+
+        /// Size n for the semitopology (auto-inferred if not provided)
+        #[arg(short = 'n', long)]
+        size: Option<usize>,
+    },
+    /// Find semitopologies that satisfy a given formula
+    Find {
+        /// The formula to satisfy (e.g., "AO X. EO Y. AP x. (x in X) || (X inter Y) => !(x in Y)")
+        #[arg(short = 'f', long)]
+        formula: String,
+        
+        /// Size to search for (single number or range like "3-5")
+        #[arg(short = 's', long, default_value = "1-6")]
+        size: String,
+
+        /// Maximum cache size (0 to disable caching)
+        #[arg(short = 'c', long, default_value = "10000")]
+        cache_size: usize,
+
+        /// Hard limit on number of families to generate
+        #[arg(short = 'l', long, default_value = "1")]
+        limit: usize,
+
+        /// Output file name pattern (use {n} for size placeholder, optional)
+        #[arg(short = 'o', long)]
+        output: Option<String>,
+
+        /// Search for semitopologies instead of semiframes
+        #[arg(long)]
+        semitopologies: bool,
+
+        /// Starting family as semitopology (e.g., "{{1}, {1,2}, {1,2,3}}")
+        #[arg(long)]
+        starting_family: Option<String>,
+
+        /// Batch size for processing
+        #[arg(short = 'b', long, default_value = "100000")]
+        batch_size: usize,
+
+        /// Log interval for progress reporting
+        #[arg(long, default_value = "10000")]
+        log_interval: usize,
     },
 }
 
@@ -188,6 +244,117 @@ fn handle_canon_command(family_str: String, size: Option<usize>) -> Result<(), B
     Ok(())
 }
 
+fn handle_check_command(formula_str: String, semitopology_str: String, size: Option<usize>) -> Result<(), Box<dyn std::error::Error>> {
+    // Parse the formula
+    let formula = parse_formula(&formula_str)
+        .map_err(|e| format!("Error parsing formula: {}", e))?;
+    
+    // First, try to infer size from the family if not provided
+    let temp_family = parse_family_str(&semitopology_str, 32) // Use max possible size for parsing
+        .map_err(|e| format!("Error parsing semitopology: {}", e))?;
+    
+    let n = size.unwrap_or_else(|| infer_size_from_family(&temp_family));
+    
+    if n == 0 {
+        return Err("Could not determine size n. Please specify with --size or ensure family contains at least one non-empty set.".into());
+    }
+    
+    // Parse the family properly with the correct size
+    let family = parse_family_str(&semitopology_str, n)
+        .map_err(|e| format!("Error parsing semitopology: {}", e))?;
+    
+    println!("Formula: {}", formula_str);
+    println!("Semitopology (n={}): {}", n, family_to_str(&family, n));
+    
+    // Create model checker and check the formula
+    let checker = ModelChecker::new(n, family);
+    let result = checker.check(&formula);
+    
+    if result.satisfied {
+        println!("Result: ✓ SATISFIED");
+        
+        if !result.witnesses.is_empty() {
+            println!("Witnesses:");
+            for (var, witness) in result.witnesses {
+                match witness {
+                    Witness::Point(p) => println!("  {} = point {}", var, p),
+                    Witness::Open(mask) => {
+                        let mut open_points = Vec::new();
+                        for i in 0..n {
+                            if (mask >> i) & 1 == 1 {
+                                open_points.push(i + 1);
+                            }
+                        }
+                        println!("  {} = {{{}}}", var, open_points.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", "));
+                    }
+                }
+            }
+        }
+    } else {
+        println!("Result: ✗ NOT SATISFIED");
+    }
+    
+    Ok(())
+}
+
+fn handle_find_command(
+    formula_str: String,
+    size: String,
+    cache_size: usize,
+    limit: usize,
+    output: Option<String>,
+    semitopologies: bool,
+    starting_family: Option<String>,
+    batch_size: usize,
+    log_interval: usize,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Parse the formula first
+    let formula = parse_formula(&formula_str)
+        .map_err(|e| format!("Error parsing formula: {}", e))?;
+    
+    println!("Searching for semitopologies satisfying formula: {}", formula_str);
+    
+    // Determine if we should output to file or console
+    let output_to_file = output.is_some();
+    let output_pattern = output.unwrap_or_else(|| "console".to_string());
+    
+    // Create a modified config that includes the formula
+    let config = parse_search_args(
+        size, cache_size, limit, output_pattern, semitopologies,
+        starting_family, batch_size, log_interval
+    ).map_err(|e| format!("Error parsing arguments: {}", e))?;
+    
+    let total_start_time = Instant::now();
+    
+    for n_val in &config.sizes {
+        let start_time = Instant::now();
+        let (results, filename) = if output_to_file {
+            search::gen_fam_with_formula(&config, *n_val, &formula)?
+        } else {
+            search::gen_fam_with_formula_console(&config, *n_val, &formula)?
+        };
+        let end_time = Instant::now();
+        
+        println!("\nResults for n={}:", n_val);
+        let search_type = if config.search_semiframes { "semiframes" } else { "semitopologies" };
+        
+        if output_to_file {
+            println!("Total {} satisfying formula: {}", search_type, results);
+            println!("Results saved in: {}", filename);
+        } else {
+            println!("Total {} satisfying formula: {}", search_type, results);
+        }
+        
+        println!("Time taken: {:.3} seconds", (end_time - start_time).as_secs_f64());
+        println!("{}", "-".repeat(50));
+    }
+    
+    let total_end_time = Instant::now();
+    println!("Total execution time: {:.3} seconds", (total_end_time - total_start_time).as_secs_f64());
+    
+    Ok(())
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
     
@@ -203,6 +370,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Commands::Canon { family, size } => {
             handle_canon_command(family, size)
+        }
+        Commands::Check { formula, semitopology, size } => {
+            handle_check_command(formula, semitopology, size)
+        }
+        Commands::Find { 
+            formula, size, cache_size, limit, output, semitopologies, 
+            starting_family, batch_size, log_interval 
+        } => {
+            handle_find_command(
+                formula, size, cache_size, limit, output, semitopologies,
+                starting_family, batch_size, log_interval
+            )
         }
     }
 }
