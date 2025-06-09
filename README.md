@@ -178,6 +178,36 @@ The model checker supports a rich proposition language for describing properties
 - `K p`: Community of point p (returns an open set)
 - `x in K p`: Point x is in the community of point p
 
+### Built-in Definitions
+
+The checker supports several built-in notations that expand to more complex formulas:
+
+| Notation | Definition | Description |
+|----------|------------|-------------|
+| `O inter P inter Q` | `O inter P && P inter Q` | Triple intersection for opens |
+| `p inter q` | `AO O. AO P. (p in O && q in P) => O inter P` | Intersection for points |
+| `p inter q inter r` | `p inter q && q inter r` | Triple intersection for points |
+| `transitive T` | `AO O. AO P. (O inter T && T inter P) => O inter P` | Transitivity of open T |
+| `topen T` | `nonempty T && transitive T` | T is a transitive open |
+| `regular p` | `topen (K p)` | Point p is regular |
+| `irregular p` | `!(regular p)` | Point p is irregular |
+| `weakly_regular p` | `p in (K p)` | Point p is weakly regular |
+| `quasiregular p` | `K p` | Point p is quasiregular (community is nonempty) |
+| `indirectly_regular p` | `EP q. p inter q && regular q` | Point p is indirectly regular |
+| `hypertransitive p` | `AO O. AO Q. (AO P. p in P => O inter P inter Q) => O inter Q` | Point p is hypertransitive |
+| `unconflicted p` | `AP x. AP y. x inter p inter y => x inter y` | Point p is unconflicted |
+| `conflicted p` | `!(unconflicted p)` | Point p is conflicted |
+| `conflicted_space` | `AP p. conflicted p` | Every point is conflicted |
+| `unconflicted_space` | `AP p. unconflicted p` | Every point is unconflicted |
+| `regular_space` | `AP p. regular p` | Every point is regular |
+| `irregular_space` | `AP p. irregular p` | Every point is irregular |
+| `weakly_regular_space` | `AP p. weakly_regular p` | Every point is weakly regular |
+| `quasiregular_space` | `AP p. quasiregular p` | Every point is quasiregular |
+| `indirectly_regular_space` | `AP p. indirectly_regular p` | Every point is indirectly regular |
+| `hypertransitive_space` | `AP p. hypertransitive p` | Every point is hypertransitive |
+
+These built-in notations automatically bind fresh variables to avoid variable capture, ensuring correct logical interpretation.
+
 ### Examples
 
 ```
@@ -187,8 +217,19 @@ x in X
 # Intersection
 X inter Y
 
+# Triple intersection (built-in)
+O inter P inter Q
+
+# Point intersection (built-in)
+p inter q
+
 # Nonempty property
 nonempty X
+
+# Built-in predicates
+regular p
+transitive T
+unconflicted_space
 
 # Existential statements
 EO X. EP x. x in X
@@ -316,6 +357,15 @@ cargo run -- find -f "EP x. EO X. x in X" -s 3 -l 10 \
 
 # Search for semiframes satisfying a formula
 cargo run -- find -f "AP x. EO X. x in X" -s 4 -l 3
+
+# Check built-in predicates (quantify over points)
+cargo run -- check -f "AP p. regular p" -s "{{}, {1}, {2}, {1,2}}" -n 2
+
+# Check space properties
+cargo run -- check -f "regular_space" -s "{{}, {1}, {2}, {1,2}}" -n 2
+
+# Find spaces with specific properties
+cargo run -- find -f "unconflicted_space" -s 3 --semitopologies
 ```
 
 ## Expected Outputs
