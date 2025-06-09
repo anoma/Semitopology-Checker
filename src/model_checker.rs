@@ -24,6 +24,8 @@ pub enum Atom {
     PointInOpen(String, String),
     /// Open X intersects open Y
     OpenIntersection(String, String),
+    /// Open X is nonempty
+    OpenNonempty(String),
 }
 
 /// Proposition formulas
@@ -130,7 +132,10 @@ pub struct ModelChecker {
 
 impl ModelChecker {
     pub fn new(n: usize, family: Family) -> Self {
-        Self { n, family }
+        // Ensure the family includes the empty set (represented as 0)
+        let mut complete_family = family;
+        complete_family.insert(0);
+        Self { n, family: complete_family }
     }
     
     /// Check if a point is in an open (subset)
@@ -146,6 +151,11 @@ impl ModelChecker {
     /// Check if two opens (subsets) intersect
     fn opens_intersect(&self, open1: u32, open2: u32) -> bool {
         (open1 & open2) != 0
+    }
+    
+    /// Check if an open (subset) is nonempty
+    fn open_is_nonempty(&self, open: u32) -> bool {
+        open != 0
     }
     
     /// Evaluate an atomic proposition under an assignment
@@ -167,6 +177,13 @@ impl ModelChecker {
                     assignment.opens.get(open_var2)
                 ) {
                     self.opens_intersect(open1, open2)
+                } else {
+                    false // Undefined variables are false
+                }
+            }
+            Atom::OpenNonempty(open_var) => {
+                if let Some(&open) = assignment.opens.get(open_var) {
+                    self.open_is_nonempty(open)
                 } else {
                     false // Undefined variables are false
                 }

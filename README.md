@@ -71,13 +71,16 @@ cargo run -- canon -f "{{3}, {1, 3}, {2, 3}, {1, 2, 3}}"
 
 ```bash
 # Check if a semitopology satisfies a simple formula
-cargo run -- check -f "EO X. EP x. x in X" -s "{{1, 2}, {1, 3}, {1, 2, 3}}" -n 3
+cargo run -- check -f "EO X. EP x. x in X" -s "{{}, {1}, {2}, {1, 2}}" -n 2
 
 # Check a complex formula with universal and existential quantifiers
-cargo run -- check -f "AO X. EO Y. AP x. (x in X) || (X inter Y) => !(x in Y)" -s "{{1, 2}, {1, 3}, {2, 3}, {1, 2, 3}}" -n 3
+cargo run -- check -f "AO X. EO Y. AP x. (x in X) || (X inter Y) => !(x in Y)" -s "{{}, {1}, {2}, {3}, {1, 2}, {1, 3}, {2, 3}, {1, 2, 3}}" -n 3
+
+# Check nonempty property
+cargo run -- check -f "EO X. nonempty X" -s "{{}, {1}, {2}, {1, 2}}" -n 2
 
 # Check with auto-inferred size
-cargo run -- check -f "x in X" -s "{{1, 2, 3}}"
+cargo run -- check -f "EO X. EP x. x in X" -s "{{}, {1, 2, 3}}"
 ```
 
 ### Find Command
@@ -171,6 +174,7 @@ The model checker supports a rich proposition language for describing properties
 **Primitive Relations:**
 - `x in X`: Point x is in open X
 - `X inter Y`: Open X intersects open Y (their intersection is non-empty)
+- `nonempty X`: Open X is nonempty (contains at least one point)
 
 ### Examples
 
@@ -181,6 +185,9 @@ x in X
 # Intersection
 X inter Y
 
+# Nonempty property
+nonempty X
+
 # Existential statements
 EO X. EP x. x in X
 # "There exists an open X such that there exists a point x such that x is in X"
@@ -188,6 +195,10 @@ EO X. EP x. x in X
 # Universal statements  
 AO X. AP x. x in X => (x in Y)
 # "For all opens X, for all points x, if x is in X then x is in Y"
+
+# Nonempty properties
+EO X. nonempty X
+# "There exists a nonempty open X"
 
 # Complex formula with mixed quantifiers
 AO X. EO Y. AP x. (x in X) || (X inter Y) => !(x in Y)

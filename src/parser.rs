@@ -19,6 +19,7 @@ pub enum Token {
     // Primitives
     In,         // in
     Inter,      // inter
+    Nonempty,   // nonempty
     
     // Identifiers and punctuation
     Identifier(String),
@@ -130,6 +131,7 @@ impl<'a> Lexer<'a> {
                     "EO" | "EP" => Ok(Token::Exists),
                     "in" => Ok(Token::In),
                     "inter" => Ok(Token::Inter),
+                    "nonempty" => Ok(Token::Nonempty),
                     _ => Ok(Token::Identifier(identifier)),
                 }
             }
@@ -262,7 +264,7 @@ impl<'a> Parser<'a> {
                 self.expect(Token::RightParen)?;
                 Ok(formula)
             }
-            Token::Identifier(_) => {
+            Token::Identifier(_) | Token::Nonempty => {
                 self.parse_atomic()
             }
             _ => Err(format!("Unexpected token: {:?}", self.current_token)),
@@ -270,20 +272,30 @@ impl<'a> Parser<'a> {
     }
     
     fn parse_atomic(&mut self) -> Result<Formula, String> {
-        let first_id = self.parse_identifier()?;
-        
         match &self.current_token {
-            Token::In => {
+            Token::Nonempty => {
                 self.advance()?;
-                let second_id = self.parse_identifier()?;
-                Ok(Formula::Atom(Atom::PointInOpen(first_id, second_id)))
+                let open_id = self.parse_identifier()?;
+                Ok(Formula::Atom(Atom::OpenNonempty(open_id)))
             }
-            Token::Inter => {
-                self.advance()?;
-                let second_id = self.parse_identifier()?;
-                Ok(Formula::Atom(Atom::OpenIntersection(first_id, second_id)))
+            Token::Identifier(_) => {
+                let first_id = self.parse_identifier()?;
+                
+                match &self.current_token {
+                    Token::In => {
+                        self.advance()?;
+                        let second_id = self.parse_identifier()?;
+                        Ok(Formula::Atom(Atom::PointInOpen(first_id, second_id)))
+                    }
+                    Token::Inter => {
+                        self.advance()?;
+                        let second_id = self.parse_identifier()?;
+                        Ok(Formula::Atom(Atom::OpenIntersection(first_id, second_id)))
+                    }
+                    _ => Err(format!("Expected 'in' or 'inter' after identifier, found {:?}", self.current_token)),
+                }
             }
-            _ => Err(format!("Expected 'in' or 'inter' after identifier, found {:?}", self.current_token)),
+            _ => Err(format!("Expected identifier or 'nonempty', found {:?}", self.current_token)),
         }
     }
     
@@ -331,6 +343,12 @@ mod tests {
             }
             _ => panic!("Expected ForAllOpens"),
         }
+    }
+    
+    #[test]
+    fn test_parse_nonempty() {
+        let formula = parse_formula("nonempty X").unwrap();
+        assert_eq!(formula, Formula::Atom(Atom::OpenNonempty("X".to_string())));
     }
     
     #[test]

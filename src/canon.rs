@@ -24,10 +24,14 @@ fn int_to_set(i: u32, n: usize) -> HashSet<usize> {
 /// Creates a human-readable string representation of a family of sets
 pub fn family_to_str(family: &Family, n: usize) -> String {
     if family.is_empty() {
-        return "{}".to_string();
+        return "{{}}".to_string(); // Include empty set in empty family
     }
     
-    let mut sorted_ints: Vec<u32> = family.iter().cloned().collect();
+    // Ensure the empty set is included in the family for display
+    let mut complete_family = family.clone();
+    complete_family.insert(0);
+    
+    let mut sorted_ints: Vec<u32> = complete_family.iter().cloned().collect();
     sorted_ints.sort();
     
     let mut set_list: Vec<Vec<usize>> = sorted_ints
@@ -43,7 +47,13 @@ pub fn family_to_str(family: &Family, n: usize) -> String {
     
     let set_strings: Vec<String> = set_list
         .iter()
-        .map(|s| format!("{{{}}}", s.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ")))
+        .map(|s| {
+            if s.is_empty() {
+                "{}".to_string()
+            } else {
+                format!("{{{}}}", s.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", "))
+            }
+        })
         .collect();
     
     format!("{{{}}}", set_strings.join(", "))
