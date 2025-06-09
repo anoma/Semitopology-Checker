@@ -1,0 +1,240 @@
+//! Search algorithm for semiframes and semitopologies.
+
+use crate::canon::{Family, canonicalize, canonical_delete, family_to_str};
+use std::collections::{HashMap, HashSet, BTreeSet};
+use std::fs::File;
+use std::io::{Write as IoWrite, BufWriter};
+
+#[derive(Debug)]
+pub struct Config {
+    pub sizes: Vec<usize>,
+    pub cache_size: usize,
+    pub limit: usize,
+    pub output_pattern: String,
+    pub search_semiframes: bool,
+    pub starting_family: Option<Family>,
+    pub batch_size: usize,
+    pub log_interval: usize,
+}
+
+/// Checks if element p is distinguished in the given family
+fn is_distinguished(family: &Family, p: usize, n: usize) -> bool {
+    let p_bit = 1u32 << (p - 1);
+    for q in 1..=n {
+        if p == q {
+            continue;
+        }
+        let q_bit = 1u32 << (q - 1);
+        let is_separated = family.iter().any(|&s_int| {
+            ((s_int & p_bit) != 0) != ((s_int & q_bit) != 0)
+        });
+        if !is_separated {
+            return false;
+        }
+    }
+    true
+}
+
+/// Checks if all elements are distinguished in the given family
+fn has_all_distinguished(family: &Family, n: usize) -> bool {
+    (1..=n).all(|p| is_distinguished(family, p, n))
+}
+
+
+/// Generates all canonical extensions of a family
+fn extend(family: &Family, n: usize, cache: &mut HashMap<Family, Family>, max_cache_size: usize) -> Vec<Family> {
+    let mut extended_families = Vec::new();
+    
+    for s_to_add in 1..(1u32 << n) {
+        if family.contains(&s_to_add) {
+            continue;
+        }
+        
+        let is_ideal_extension = family.iter().all(|&x| family.contains(&(x | s_to_add)));
+        
+        if is_ideal_extension {
+            let mut new_family = family.clone();
+            new_family.insert(s_to_add);
+            let c_new_family = canonicalize(&new_family, n, cache, max_cache_size);
+            if canonical_delete(&c_new_family, n, cache, max_cache_size) == *family {
+                extended_families.push(c_new_family);
+            }
+        }
+    }
+    
+    extended_families
+}
+
+fn process_and_dump_batch(
+    families_to_process: &mut Vec<Family>,
+    n: usize,
+    outfile: &mut BufWriter<File>,
+    total_found_counter: &mut usize,
+    search_semiframes: bool,
+    limit: usize,
+) -> Result<bool, Box<dyn std::error::Error>> {
+    if families_to_process.is_empty() {
+        return Ok(false);
+    }
+    
+    print!("\r  Processing batch of {} families... Filtering...", families_to_process.len());
+    std::io::stdout().flush()?;
+    
+    let distinguished_fams: Vec<&Family> = families_to_process
+        .iter()
+        .filter(|fam| {
+            if search_semiframes {
+                has_all_distinguished(fam, n)
+            } else {
+                // For semitopologies, we don't require all elements to be distinguished
+                true
+            }
+        })
+        .collect();
+    
+    for fam in &distinguished_fams {
+        if limit > 0 && *total_found_counter >= limit {
+            families_to_process.clear();
+            return Ok(true); // Hit limit
+        }
+        writeln!(outfile, "{}", family_to_str(fam, n))?;
+        *total_found_counter += 1;
+    }
+    
+    families_to_process.clear();
+    
+    let status_msg = format!("Batch processed. Total {} found so far: {}.", 
+                           if search_semiframes { "semiframes" } else { "semitopologies" }, 
+                           total_found_counter);
+    print!("\r{:<80}", status_msg);
+    std::io::stdout().flush()?;
+    
+    Ok(limit > 0 && *total_found_counter >= limit)
+}
+
+fn dfs_explore(
+    family: &Family,
+    n: usize,
+    visited_families: &mut HashSet<Family>,
+    families_to_process: &mut Vec<Family>,
+    batch_size: usize,
+    outfile: &mut BufWriter<File>,
+    total_found_counter: &mut usize,
+    log_interval: usize,
+    cache: &mut HashMap<Family, Family>,
+    max_cache_size: usize,
+    search_semiframes: bool,
+    limit: usize,
+) -> Result<bool, Box<dyn std::error::Error>> {
+    let new_families = extend(family, n, cache, max_cache_size);
+    
+    for nf in new_families {
+        if !visited_families.contains(&nf) {
+            visited_families.insert(nf.clone());
+            families_to_process.push(nf.clone());
+            
+            if visited_families.len() % log_interval == 0 {
+                print!(
+                    "\r  Exploring... Total visited: {}. Batch size: {}/{}",
+                    visited_families.len(),
+                    families_to_process.len(),
+                    batch_size
+                );
+                std::io::stdout().flush()?;
+            }
+            
+            if families_to_process.len() >= batch_size {
+                let hit_limit = process_and_dump_batch(families_to_process, n, outfile, total_found_counter, search_semiframes, limit)?;
+                if hit_limit {
+                    return Ok(true);
+                }
+            }
+            
+            let hit_limit = dfs_explore(
+                &nf,
+                n,
+                visited_families,
+                families_to_process,
+                batch_size,
+                outfile,
+                total_found_counter,
+                log_interval,
+                cache,
+                max_cache_size,
+                search_semiframes,
+                limit,
+            )?;
+            if hit_limit {
+                return Ok(true);
+            }
+        }
+    }
+    
+    Ok(false)
+}
+
+/// Main function to generate all families for given n with configuration
+pub fn gen_fam(config: &Config, n: usize) -> Result<(usize, String), Box<dyn std::error::Error>> {
+    let search_type = if config.search_semiframes { "semiframes" } else { "semitopologies" };
+    println!("--- Generating {} for n={} (Rust DFS with Batching & Caching) ---", search_type, n);
+    
+    let outfile_path = config.output_pattern.replace("{n}", &n.to_string());
+    println!("  Batch size: {}. Log interval: {}.", config.batch_size, config.log_interval);
+    println!("  Cache size: {}. Limit: {}.", 
+             if config.cache_size == 0 { "disabled".to_string() } else { config.cache_size.to_string() }, 
+             if config.limit == 0 { "unlimited".to_string() } else { config.limit.to_string() });
+    println!("  Results will be saved to: {}", outfile_path);
+    
+    if n == 0 {
+        return Ok((0, outfile_path));
+    }
+
+    let mut cache = HashMap::new();
+    let mut visited_families = HashSet::new();
+    let mut families_to_process = Vec::new();
+    let mut total_found_counter = 0;
+    
+    let start_family = if let Some(ref custom_start) = config.starting_family {
+        custom_start.clone()
+    } else {
+        let full_set = (1u32 << n) - 1;
+        let mut family = BTreeSet::new();
+        family.insert(full_set);
+        family
+    };
+    
+    println!("  Starting family: {}", family_to_str(&start_family, n));
+    
+    visited_families.insert(start_family.clone());
+    families_to_process.push(start_family.clone());
+
+    let file = File::create(&outfile_path)?;
+    let mut outfile = BufWriter::new(file);
+
+    let hit_limit = dfs_explore(
+        &start_family,
+        n,
+        &mut visited_families,
+        &mut families_to_process,
+        config.batch_size,
+        &mut outfile,
+        &mut total_found_counter,
+        config.log_interval,
+        &mut cache,
+        config.cache_size,
+        config.search_semiframes,
+        config.limit,
+    )?;
+
+    if !hit_limit {
+        println!("\n  Search complete. Processing final batch...");
+        process_and_dump_batch(&mut families_to_process, n, &mut outfile, &mut total_found_counter, config.search_semiframes, config.limit)?;
+    } else {
+        println!("\n  Search stopped: reached limit of {} families.", config.limit);
+    }
+
+    outfile.flush()?;
+    println!("  Done.");
+    
+    Ok((total_found_counter, outfile_path))
+}

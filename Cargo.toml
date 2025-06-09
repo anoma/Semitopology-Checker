@@ -1,0 +1,9 @@
+[package]
+name = "semiframes"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+nauty-Traces-sys = "0.9"
+bitvec = "1.0"
+clap = { version = "4.0", features = ["derive"] }
