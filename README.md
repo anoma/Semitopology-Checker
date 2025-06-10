@@ -175,10 +175,10 @@ The model checker supports a rich proposition language for describing properties
 - `x in X`: Point x is in open X
 - `X inter Y`: Open X intersects open Y (their intersection is non-empty)
 - `nonempty X`: Open X is nonempty (contains at least one point)
-- `K p`: Community of point p (returns an open set)
-- `x in K p`: Point x is in the community of point p
+
+**Open Expressions:**
+- `K p`: Community of point p
 - `IC O`: Interior complement of open O (largest open disjoint from O)
-- `x in IC O`: Point x is in the interior complement of open O
 
 ### Built-in Definitions
 
