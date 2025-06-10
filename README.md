@@ -184,29 +184,29 @@ The model checker supports a rich proposition language for describing properties
 
 The checker supports several built-in notations that expand to more complex formulas:
 
-| Notation | Definition | Description |
-|----------|------------|-------------|
-| `O inter P inter Q` | `O inter P && P inter Q` | Triple intersection for opens |
-| `p inter q` | `AO O. AO P. (p in O && q in P) => O inter P` | Intersection for points |
-| `p inter q inter r` | `p inter q && q inter r` | Triple intersection for points |
-| `transitive T` | `AO O. AO P. (O inter T && T inter P) => O inter P` | Transitivity of open T |
-| `topen T` | `nonempty T && transitive T` | T is a transitive open |
-| `regular p` | `topen (K p)` | Point p is regular |
-| `irregular p` | `!(regular p)` | Point p is irregular |
-| `weakly_regular p` | `p in (K p)` | Point p is weakly regular |
-| `quasiregular p` | `nonempty (K p)` | Point p is quasiregular (community is nonempty) |
-| `indirectly_regular p` | `EP q. p inter q && regular q` | Point p is indirectly regular |
-| `hypertransitive p` | `AO O. AO Q. (AO P. p in P => O inter P inter Q) => O inter Q` | Point p is hypertransitive |
-| `unconflicted p` | `AP x. AP y. x inter p inter y => x inter y` | Point p is unconflicted |
-| `conflicted p` | `!(unconflicted p)` | Point p is conflicted |
-| `conflicted_space` | `AP p. conflicted p` | Every point is conflicted |
-| `unconflicted_space` | `AP p. unconflicted p` | Every point is unconflicted |
-| `regular_space` | `AP p. regular p` | Every point is regular |
-| `irregular_space` | `AP p. irregular p` | Every point is irregular |
-| `weakly_regular_space` | `AP p. weakly_regular p` | Every point is weakly regular |
-| `quasiregular_space` | `AP p. quasiregular p` | Every point is quasiregular |
-| `indirectly_regular_space` | `AP p. indirectly_regular p` | Every point is indirectly regular |
-| `hypertransitive_space` | `AP p. hypertransitive p` | Every point is hypertransitive |
+| Notation | Definition |
+|----------|------------|
+| `O inter P inter Q` | `O inter P && P inter Q` |
+| `p inter q` | `AO O. AO P. (p in O && q in P) => O inter P` |
+| `p inter q inter r` | `p inter q && q inter r` |
+| `transitive T` | `AO O. AO P. (O inter T && T inter P) => O inter P` |
+| `topen T` | `nonempty T && transitive T` |
+| `regular p` | `topen (K p)` |
+| `irregular p` | `!(regular p)` |
+| `weakly_regular p` | `p in (K p)` |
+| `quasiregular p` | `nonempty (K p)` |
+| `indirectly_regular p` | `EP q. p inter q && regular q` |
+| `hypertransitive p` | `AO O. AO Q. (AO P. p in P => O inter P inter Q) => O inter Q` |
+| `unconflicted p` | `AP x. AP y. x inter p inter y => x inter y` |
+| `conflicted p` | `!(unconflicted p)` |
+| `conflicted_space` | `AP p. conflicted p` |
+| `unconflicted_space` | `AP p. unconflicted p` |
+| `regular_space` | `AP p. regular p` |
+| `irregular_space` | `AP p. irregular p` |
+| `weakly_regular_space` | `AP p. weakly_regular p` |
+| `quasiregular_space` | `AP p. quasiregular p` |
+| `indirectly_regular_space` | `AP p. indirectly_regular p` |
+| `hypertransitive_space` | `AP p. hypertransitive p` |
 
 These built-in notations automatically bind fresh variables to avoid variable capture, ensuring correct logical interpretation.
 
