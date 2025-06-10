@@ -4,19 +4,26 @@ use crate::canon::Family;
 use std::collections::HashMap;
 
 
+/// Open expressions that can be evaluated to concrete open sets
+#[derive(Debug, Clone, PartialEq)]
+pub enum OpenExpr {
+    /// Simple open variable
+    Var(String),
+    /// Community of a point (K p)
+    Community(String),
+    /// Interior complement of an open expression (IC O)
+    InteriorComplement(Box<OpenExpr>),
+}
+
 /// Atomic propositions
 #[derive(Debug, Clone, PartialEq)]
 pub enum Atom {
-    /// Point x is in open X
-    PointInOpen(String, String),
-    /// Open X intersects open Y
-    OpenIntersection(String, String),
-    /// Open X is nonempty
-    OpenNonempty(String),
-    /// Community of point p (K p) - checks if community is nonempty
-    Community(String),
-    /// Point x is in community of point p (x in K p)
-    PointInCommunity(String, String),
+    /// Point x is in open expression
+    PointInOpen(String, OpenExpr),
+    /// Two open expressions intersect
+    OpenIntersection(OpenExpr, OpenExpr),
+    /// Open expression is nonempty
+    OpenNonempty(OpenExpr),
 }
 
 /// Proposition formulas
@@ -147,6 +154,17 @@ impl ModelChecker {
         anti
     }
     
+    /// Calculate interior complement of open O: largest open disjoint from O
+    fn interior_complement(&self, o: u32) -> u32 {
+        let mut complement = 0u32;
+        for &q in &self.family {
+            if o & q == 0 {  // q is disjoint from o
+                complement |= q;
+            }
+        }
+        complement
+    }
+    
     /// Calculate community of point p using cached antipode table
     fn community_with_cache(
         &self,
@@ -209,57 +227,59 @@ impl ModelChecker {
         open != 0
     }
     
+    /// Evaluate an open expression to a concrete open set
+    fn eval_open_expr(&mut self, open_expr: &OpenExpr, assignment: &Assignment) -> Option<u32> {
+        match open_expr {
+            OpenExpr::Var(var) => {
+                assignment.opens.get(var).copied()
+            }
+            OpenExpr::Community(point_var) => {
+                if let Some(&point) = assignment.points.get(point_var) {
+                    let anti = self.get_antipode_cache().clone();
+                    Some(self.community_with_cache(point, &anti))
+                } else {
+                    None
+                }
+            }
+            OpenExpr::InteriorComplement(inner_expr) => {
+                if let Some(inner_open) = self.eval_open_expr(inner_expr, assignment) {
+                    Some(self.interior_complement(inner_open))
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
     /// Evaluate an atomic proposition under an assignment
     fn eval_atom(&mut self, atom: &Atom, assignment: &Assignment) -> bool {
         match atom {
-            Atom::PointInOpen(point_var, open_var) => {
-                if let (Some(&point), Some(&open)) = (
-                    assignment.points.get(point_var),
-                    assignment.opens.get(open_var)
-                ) {
-                    self.point_in_open(point, open)
+            Atom::PointInOpen(point_var, open_expr) => {
+                if let Some(&point) = assignment.points.get(point_var) {
+                    if let Some(open) = self.eval_open_expr(open_expr, assignment) {
+                        self.point_in_open(point, open)
+                    } else {
+                        false
+                    }
                 } else {
-                    false // Undefined variables are false
+                    false
                 }
             }
-            Atom::OpenIntersection(open_var1, open_var2) => {
-                if let (Some(&open1), Some(&open2)) = (
-                    assignment.opens.get(open_var1),
-                    assignment.opens.get(open_var2)
+            Atom::OpenIntersection(open_expr1, open_expr2) => {
+                if let (Some(open1), Some(open2)) = (
+                    self.eval_open_expr(open_expr1, assignment),
+                    self.eval_open_expr(open_expr2, assignment)
                 ) {
                     self.opens_intersect(open1, open2)
                 } else {
-                    false // Undefined variables are false
+                    false
                 }
             }
-            Atom::OpenNonempty(open_var) => {
-                if let Some(&open) = assignment.opens.get(open_var) {
+            Atom::OpenNonempty(open_expr) => {
+                if let Some(open) = self.eval_open_expr(open_expr, assignment) {
                     self.open_is_nonempty(open)
                 } else {
-                    false // Undefined variables are false
-                }
-            }
-            Atom::Community(point_var) => {
-                if let Some(&point) = assignment.points.get(point_var) {
-                    let anti = self.get_antipode_cache().clone();
-                    let community = self.community_with_cache(point, &anti);
-                    // The community construction creates an open, which should be stored
-                    // For now, we'll return true if the community is nonempty
-                    community != 0
-                } else {
-                    false // Undefined variables are false
-                }
-            }
-            Atom::PointInCommunity(point_var, community_point_var) => {
-                if let (Some(&point), Some(&community_point)) = (
-                    assignment.points.get(point_var),
-                    assignment.points.get(community_point_var)
-                ) {
-                    let anti = self.get_antipode_cache().clone();
-                    let community = self.community_with_cache(community_point, &anti);
-                    self.point_in_open(point, community)
-                } else {
-                    false // Undefined variables are false
+                    false
                 }
             }
         }

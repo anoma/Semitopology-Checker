@@ -1,17 +1,17 @@
 # Semiframes and Semitopologies Checker
 
-A Rust tool for finding semiframes and semitopologies using nauty for canonical graph labeling, with model checking capabilities for proposition logic.
+A model checker for discovering finite semitopologies and semiframes that satisfy first-order logical properties, with comprehensive search and verification capabilities.
 
 ## Overview
 
-This program finds all distinguished semiframes (union-closed covers that don't contain the empty set and distinguish all their points) or semitopologies up to isomorphism for a given size n using a depth-first search with batching and caching.
+This program searches for finite semitopologies (union-closed covers containing the empty set) and finite semiframes (finite semitopologies with the T0 property) that satisfy logical properties expressed in a rich first-order language. 
 
-Additionally, it provides model checking functionality to verify semitopologies against logical propositions and search for semitopologies satisfying specific formulas.
+The primary use case is finding structures with specific topological properties by expressing those properties as logical formulas. The tool also supports systematic enumeration of all structures up to isomorphism and verification of individual structures against given formulas.
 
 ## Features
 
-- **Semiframes Search**: Find all distinguished semiframes where every element is distinguished
-- **Semitopologies Search**: Find all valid semitopologies (union-closed families)
+- **Semiframes Search**: Find all semiframes (union-closed covers with T0 property)
+- **Semitopologies Search**: Find all semitopologies (union-closed covers)
 - **Model Checking**: Verify if semitopologies satisfy logical propositions
 - **Formula Search**: Find semitopologies that satisfy specific logical formulas
 - **Canonicalization**: Canonicalize individual semitopologies to their standard form
@@ -44,14 +44,14 @@ Use `cargo run -- <command> --help` for detailed help on each command.
 ### Search Command
 
 ```bash
-# Search for semiframes of size 3
+# Search for semitopologies of size 3 (default)
 cargo run -- search -s 3
 
-# Search for semiframes of sizes 1 through 5
+# Search for semitopologies of sizes 1 through 5
 cargo run -- search -s 1-5
 
-# Search for semitopologies instead of semiframes
-cargo run -- search -s 3 --semitopologies
+# Search for semiframes instead of semitopologies
+cargo run -- search -s 3 --semiframes
 ```
 
 ### Canon Command
@@ -87,16 +87,16 @@ cargo run -- check -f "EO X. EP x. x in X" -s "{{}, {1, 2, 3}}"
 
 ```bash
 # Find one semitopology satisfying a formula (default)
-cargo run -- find -f "EO X. EP x. x in X" -s 3 --semitopologies
+cargo run -- find -f "EO X. EP x. x in X" -s 3
 
 # Find multiple semitopologies satisfying a formula
-cargo run -- find -f "EO X. EP x. x in X" -s 3 -l 5 --semitopologies
+cargo run -- find -f "EO X. EP x. x in X" -s 3 -l 5
 
 # Save results to file instead of console output
-cargo run -- find -f "AO X. x in X" -s 3 -o "results_n{n}.txt" --semitopologies
+cargo run -- find -f "AO X. x in X" -s 3 -o "results_n{n}.txt"
 
 # Search for semiframes satisfying a formula
-cargo run -- find -f "EP x. AO X. x in X" -s 4 -l 10
+cargo run -- find -f "EP x. AO X. x in X" -s 4 -l 10 --semiframes
 ```
 
 ### Search Command Options
@@ -107,7 +107,7 @@ cargo run -- find -f "EP x. AO X. x in X" -s 4 -l 10
 | `--cache-size` | `-c` | Maximum cache size (0 to disable) | `10000` |
 | `--limit` | `-l` | Hard limit on families to generate (0 for unlimited) | `0` |
 | `--output` | `-o` | Output file pattern (use `{n}` for size placeholder) | `distinguished_families_n{n}.txt` |
-| `--semitopologies` | | Search for semitopologies instead of semiframes | `false` |
+| `--semiframes` | | Search for semiframes instead of semitopologies | `false` |
 | `--starting-family` | | Starting family as semitopology (e.g., "{{1}, {1,2}}") | `{{1,2,...,n}}` |
 | `--batch-size` | `-b` | Batch size for processing | `100000` |
 | `--log-interval` | | Log interval for progress reporting | `10000` |
@@ -136,7 +136,7 @@ cargo run -- find -f "EP x. AO X. x in X" -s 4 -l 10
 | `--limit` | `-l` | Maximum number of results to find | `1` |
 | `--output` | `-o` | Output file pattern (optional, use {n} for size placeholder) | Console output |
 | `--cache-size` | `-c` | Maximum cache size (0 to disable) | `10000` |
-| `--semitopologies` | | Search for semitopologies instead of semiframes | `false` |
+| `--semiframes` | | Search for semiframes instead of semitopologies | `false` |
 | `--starting-family` | | Starting family as semitopology | `{{1,2,...,n}}` |
 | `--batch-size` | `-b` | Batch size for processing | `100000` |
 | `--log-interval` | | Log interval for progress reporting | `10000` |
@@ -177,6 +177,8 @@ The model checker supports a rich proposition language for describing properties
 - `nonempty X`: Open X is nonempty (contains at least one point)
 - `K p`: Community of point p (returns an open set)
 - `x in K p`: Point x is in the community of point p
+- `IC O`: Interior complement of open O (largest open disjoint from O)
+- `x in IC O`: Point x is in the interior complement of open O
 
 ### Built-in Definitions
 
@@ -192,7 +194,7 @@ The checker supports several built-in notations that expand to more complex form
 | `regular p` | `topen (K p)` | Point p is regular |
 | `irregular p` | `!(regular p)` | Point p is irregular |
 | `weakly_regular p` | `p in (K p)` | Point p is weakly regular |
-| `quasiregular p` | `K p` | Point p is quasiregular (community is nonempty) |
+| `quasiregular p` | `nonempty (K p)` | Point p is quasiregular (community is nonempty) |
 | `indirectly_regular p` | `EP q. p inter q && regular q` | Point p is indirectly regular |
 | `hypertransitive p` | `AO O. AO Q. (AO P. p in P => O inter P inter Q) => O inter Q` | Point p is hypertransitive |
 | `unconflicted p` | `AP x. AP y. x inter p inter y => x inter y` | Point p is unconflicted |
@@ -244,12 +246,20 @@ EO X. nonempty X
 # "There exists a nonempty open X"
 
 # Community construction
-AP p. K p
+AP p. nonempty (K p)
 # "For all points p, the community of p is nonempty"
 
 # Point in community
 EP p. EP q. q in K p
 # "There exists a point p such that there exists a point q such that q is in the community of p"
+
+# Interior complement
+EO O. IC O
+# "There exists an open O such that the interior complement of O is nonempty"
+
+# Point in interior complement
+EO O. EP x. x in IC O
+# "There exists an open O and a point x such that x is in the interior complement of O"
 
 # Complex formula with mixed quantifiers
 AO X. EO Y. AP x. (x in X) || (X inter Y) => !(x in Y)
@@ -268,14 +278,14 @@ AO X. EO Y. AP x. (x in X) || (X inter Y) => !(x in Y)
 #### Basic Searches
 
 ```bash
-# Find semiframes of size 4
+# Find semitopologies of size 4 (default)
 cargo run -- search -s 4
 
-# Find first 10 semiframes of size 5
+# Find first 10 semitopologies of size 5
 cargo run -- search -s 5 -l 10
 
-# Find all semitopologies of size 3
-cargo run -- search -s 3 --semitopologies
+# Find all semiframes of size 3
+cargo run -- search -s 3 --semiframes
 ```
 
 #### Performance Tuning
@@ -305,8 +315,8 @@ cargo run -- search -s 4 --starting-family "{{1}, {2}, {1,2}}"
 cargo run -- search -s 3 --starting-family "{{3}, {1,3}, {2,3}, {1, 2, 3}}"
 # Uses canonicalized form: {{1}, {1,2}, {1,3}}
 
-# Search semitopologies with custom output
-cargo run -- search -s 3 --semitopologies -o "semitopologies_{n}.txt"
+# Search semiframes with custom output
+cargo run -- search -s 3 --semiframes -o "semiframes_{n}.txt"
 ```
 
 #### Canonicalization Examples
@@ -336,27 +346,30 @@ cargo run -- check -f "EO X. EP x. x in X" -s "{{}, {1, 2}, {1, 3}, {1, 2, 3}}" 
 cargo run -- check -f "AO X. AP x. x in X => (X inter Y)" -s "{{}, {1}, {2}, {1, 2}}" -n 2
 
 # Check community properties
-cargo run -- check -f "AP p. K p" -s "{{}, {1, 2}, {1, 3}, {1, 2, 3}}" -n 3
+cargo run -- check -f "AP p. nonempty (K p)" -s "{{}, {1, 2}, {1, 3}, {1, 2, 3}}" -n 3
 
 # Check point in community
 cargo run -- check -f "EP p. EP q. q in K p" -s "{{}, {1, 2}, {1, 3}, {1, 2, 3}}" -n 3
+
+# Check interior complement properties
+cargo run -- check -f "EO O. EP x. x in IC O" -s "{{}, {1}, {2}, {1, 2}}" -n 2
 
 # Complex formula verification
 cargo run -- check -f "AO X. EO Y. AP x. (x in X) || (X inter Y) => !(x in Y)" \
   -s "{{}, {1, 2}, {1, 3}, {2, 3}, {1, 2, 3}}" -n 3
 
-# Find semitopologies with specific properties (console output)
-cargo run -- find -f "EO X. EP x. x in X" -s 3 --semitopologies
+# Find semitopologies with specific properties (console output, default)
+cargo run -- find -f "EO X. EP x. x in X" -s 3
 
 # Find multiple results
-cargo run -- find -f "AO X. AP x. x in X" -s 3 -l 5 --semitopologies
+cargo run -- find -f "AO X. AP x. x in X" -s 3 -l 5
 
 # Save model checking results to file
 cargo run -- find -f "EP x. EO X. x in X" -s 3 -l 10 \
-  -o "satisfying_semitopologies_n{n}.txt" --semitopologies
+  -o "satisfying_semitopologies_n{n}.txt"
 
 # Search for semiframes satisfying a formula
-cargo run -- find -f "AP x. EO X. x in X" -s 4 -l 3
+cargo run -- find -f "AP x. EO X. x in X" -s 4 -l 3 --semiframes
 
 # Check built-in predicates (quantify over points)
 cargo run -- check -f "AP p. regular p" -s "{{}, {1}, {2}, {1,2}}" -n 2
@@ -365,39 +378,32 @@ cargo run -- check -f "AP p. regular p" -s "{{}, {1}, {2}, {1,2}}" -n 2
 cargo run -- check -f "regular_space" -s "{{}, {1}, {2}, {1,2}}" -n 2
 
 # Find spaces with specific properties
-cargo run -- find -f "unconflicted_space" -s 3 --semitopologies
+cargo run -- find -f "unconflicted_space" -s 3
 ```
 
 ## Expected Outputs
 
 ### Semiframes vs Semitopologies
 
-**Semiframes** (default): Only families where every element is distinguished by some set in the family.
+Both semiframes and semitopologies are union-closed covers containing the empty set.
 
-**Semitopologies** (with `--semitopologies`): All union-closed families, regardless of distinguishing property.
+**Semitopologies** (default): All union-closed covers containing the empty set.
+
+**Semiframes** (with `--semiframes`): Union-closed covers containing the empty set with the additional T0 property - all points are topologically distinct (for any two distinct points, there exists an open set containing one but not the other). This cuts down the search space.
 
 ### Sample Outputs
 
-For `n=2` semiframes:
+For `n=2` semitopologies (default):
 ```
-{{1}, {1, 2}}
-{{1}, {2}, {1, 2}}
-```
-
-For `n=3` with limit 3:
-```
-{{1}, {2}, {3}, {1, 2}, {1, 3}, {2, 3}, {1, 2, 3}}
-{{1}, {3}, {1, 2}, {1, 3}, {2, 3}, {1, 2, 3}}
-{{2}, {3}, {1, 2}, {1, 3}, {2, 3}, {1, 2, 3}}
+{{}, {1, 2}}
+{{}, {1}, {1, 2}}
+{{}, {1}, {2}, {1, 2}}
 ```
 
-For `n=3` semitopologies (first 5):
+For `n=2` semiframes (with `--semiframes`):
 ```
-{{1, 2, 3}}
-{{1}, {1, 2, 3}}
-{{1, 2}, {1, 2, 3}}
-{{1}, {1, 2}, {1, 2, 3}}
-{{2}, {3}, {2, 3}, {1, 2, 3}}
+{{}, {1}, {1, 2}}
+{{}, {1}, {2}, {1, 2}}
 ```
 
 ### Model Checking Outputs
@@ -449,7 +455,7 @@ Result: ✗ NOT SATISFIED
 
 **Find command console output:**
 ```bash
-$ cargo run -- find -f "EO X. EP x. x in X" -s 3 -l 3 --semitopologies
+$ cargo run -- find -f "EO X. EP x. x in X" -s 3 -l 3
 ```
 ```
 Searching for semitopologies satisfying formula: EO X. EP x. x in X
@@ -470,15 +476,15 @@ Total semitopologies satisfying formula: 3
 
 ### Performance Characteristics
 
-| Size | Actual Semiframes Count | Time (measured) | Memory Usage |
-|------|------------------------|-----------------|--------------|
-| n=1  | 1                      | <0.01s          | Trivial      |
-| n=2  | 2                      | <0.01s          | Trivial      |
-| n=3  | 10                     | <0.01s          | Trivia       |
-| n=4  | 138                    | <0.01s          | Low          |
-| n=5  | 14,005                 | ~0.43s          | Medium       |
-| n=6  | >34,000,000            | hours?          | High (may run out of memory) |
-| n=7  | Hundreds of billions?  | ???             | Very High (hope you have a lot of ram) |
+| Size | Semiframes Count | Semitopologies Count | Time (measured) | Memory Usage |
+|------|------------------|---------------------|-----------------|--------------|
+| n=1  | 1                | 1                   | <0.01s          | Trivial      |
+| n=2  | 2                | 3                   | <0.01s          | Trivial      |
+| n=3  | 10               | 14                  | <0.01s          | Trivial      |
+| n=4  | 138              | 165                 | <0.01s          | Trivial          |
+| n=5  | 14,005           | 14,480              | ~0.43s          | Low       |
+| n=6  | ~150 million (est) | ~150 million (est) | hours?        | High (may run out of memory) |
+| n=7  | ~1.5 Trillion (est) | ~1.5 Trillion (est) | years?      | Very High (hope you have a lot of ram) |
 
 *Performance measured on the current implementation. Times may vary by system.*
 

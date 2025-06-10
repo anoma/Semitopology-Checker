@@ -4,6 +4,9 @@ mod search;
 mod canon;
 mod model_checker;
 mod parser;
+mod tokens;
+mod ast;
+mod macro_expander;
 
 use clap::{Parser, Subcommand};
 use search::{Config, gen_fam};
@@ -41,9 +44,9 @@ enum Commands {
         #[arg(short = 'o', long, default_value = "distinguished_families_n{n}.txt")]
         output: String,
 
-        /// Search for semitopologies instead of semiframes
+        /// Search for semiframes instead of semitopologies
         #[arg(long)]
-        semitopologies: bool,
+        semiframes: bool,
 
         /// Starting family as semitopology (e.g., "{{1}, {1,2}, {1,2,3}}")
         #[arg(long)]
@@ -103,9 +106,9 @@ enum Commands {
         #[arg(short = 'o', long)]
         output: Option<String>,
 
-        /// Search for semitopologies instead of semiframes
+        /// Search for semiframes instead of semitopologies
         #[arg(long)]
-        semitopologies: bool,
+        semiframes: bool,
 
         /// Starting family as semitopology (e.g., "{{1}, {1,2}, {1,2,3}}")
         #[arg(long)]
@@ -155,7 +158,7 @@ fn parse_search_args(
     cache_size: usize,
     limit: usize,
     output: String,
-    semitopologies: bool,
+    semiframes: bool,
     starting_family: Option<String>,
     batch_size: usize,
     log_interval: usize,
@@ -177,7 +180,7 @@ fn parse_search_args(
         cache_size,
         limit,
         output_pattern: output,
-        search_semiframes: !semitopologies,
+        search_semiframes: semiframes,
         starting_family,
         batch_size,
         log_interval,
@@ -189,13 +192,13 @@ fn handle_search_command(
     cache_size: usize,
     limit: usize,
     output: String,
-    semitopologies: bool,
+    semiframes: bool,
     starting_family: Option<String>,
     batch_size: usize,
     log_interval: usize,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let config = parse_search_args(
-        size, cache_size, limit, output, semitopologies,
+        size, cache_size, limit, output, semiframes,
         starting_family, batch_size, log_interval
     ).map_err(|e| format!("Error parsing arguments: {}", e))?;
     
@@ -303,7 +306,7 @@ fn handle_find_command(
     cache_size: usize,
     limit: usize,
     output: Option<String>,
-    semitopologies: bool,
+    semiframes: bool,
     starting_family: Option<String>,
     batch_size: usize,
     log_interval: usize,
@@ -320,7 +323,7 @@ fn handle_find_command(
     
     // Create a modified config that includes the formula
     let config = parse_search_args(
-        size, cache_size, limit, output_pattern, semitopologies,
+        size, cache_size, limit, output_pattern, semiframes,
         starting_family, batch_size, log_interval
     ).map_err(|e| format!("Error parsing arguments: {}", e))?;
     
@@ -360,11 +363,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     match args.command {
         Commands::Search { 
-            size, cache_size, limit, output, semitopologies, 
+            size, cache_size, limit, output, semiframes, 
             starting_family, batch_size, log_interval 
         } => {
             handle_search_command(
-                size, cache_size, limit, output, semitopologies,
+                size, cache_size, limit, output, semiframes,
                 starting_family, batch_size, log_interval
             )
         }
@@ -375,11 +378,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             handle_check_command(formula, semitopology, size)
         }
         Commands::Find { 
-            formula, size, cache_size, limit, output, semitopologies, 
+            formula, size, cache_size, limit, output, semiframes, 
             starting_family, batch_size, log_interval 
         } => {
             handle_find_command(
-                formula, size, cache_size, limit, output, semitopologies,
+                formula, size, cache_size, limit, output, semiframes,
                 starting_family, batch_size, log_interval
             )
         }

@@ -1,0 +1,180 @@
+use crate::ast::*;
+use crate::tokens::Token;
+
+grammar;
+
+/// LALRPOP grammar for semitopology formulas
+/// 
+/// Unified precedence cascade eliminates ambiguity by having a single
+/// pathway from lowest precedence (quantifiers) to highest (atoms).
+extern {
+    type Location = usize;
+    type Error = &'static str;
+
+    enum Token {
+        // Logical operators
+        "&&" => Token::And,
+        "||" => Token::Or,
+        "=>" => Token::Implies,
+        "!" => Token::Not,
+        
+        // Quantifiers
+        "AP" => Token::AP,
+        "EP" => Token::EP,
+        "AO" => Token::AO,
+        "EO" => Token::EO,
+        
+        // Primitives
+        "in" => Token::In,
+        "inter" => Token::Inter,
+        "nonempty" => Token::Nonempty,
+        "K" => Token::K,
+        "IC" => Token::IC,
+        
+        // Built-in macro keywords
+        "transitive" => Token::Transitive,
+        "topen" => Token::Topen,
+        "regular" => Token::Regular,
+        "irregular" => Token::Irregular,
+        "weakly_regular" => Token::WeaklyRegular,
+        "quasiregular" => Token::Quasiregular,
+        "indirectly_regular" => Token::IndirectlyRegular,
+        "hypertransitive" => Token::Hypertransitive,
+        "unconflicted" => Token::Unconflicted,
+        "conflicted" => Token::Conflicted,
+        "conflicted_space" => Token::ConflictedSpace,
+        "unconflicted_space" => Token::UnconflictedSpace,
+        "regular_space" => Token::RegularSpace,
+        "irregular_space" => Token::IrregularSpace,
+        "weakly_regular_space" => Token::WeaklyRegularSpace,
+        "quasiregular_space" => Token::QuasiregularSpace,
+        "indirectly_regular_space" => Token::IndirectlyRegularSpace,
+        "hypertransitive_space" => Token::HypertransitiveSpace,
+        
+        // Variables and punctuation
+        PointVar => Token::PointVar(<String>),
+        OpenVar => Token::OpenVar(<String>),
+        "." => Token::Dot,
+        "(" => Token::LeftParen,
+        ")" => Token::RightParen,
+    }
+}
+
+/// Unified precedence cascade entry point
+/// Space macros are handled first, then the logical expression cascade
+pub Prop: Prop = {
+    // Top-level space macros are special and don't mix with logic
+    "conflicted_space" => Prop::Macro(MacroProp::ConflictedSpace),
+    "unconflicted_space" => Prop::Macro(MacroProp::UnconflictedSpace),
+    "regular_space" => Prop::Macro(MacroProp::RegularSpace),
+    "irregular_space" => Prop::Macro(MacroProp::IrregularSpace),
+    "weakly_regular_space" => Prop::Macro(MacroProp::WeaklyRegularSpace),
+    "quasiregular_space" => Prop::Macro(MacroProp::QuasiregularSpace),
+    "indirectly_regular_space" => Prop::Macro(MacroProp::IndirectlyRegularSpace),
+    "hypertransitive_space" => Prop::Macro(MacroProp::HypertransitiveSpace),
+    
+    // All other expressions start at the quantifier level
+    QuantifierLevel,
+}
+
+
+/// Precedence 1: Quantifiers (loosest binding, right-associative)
+/// "EP p. A && B" parses as "EP p. (A && B)"
+QuantifierLevel: Prop = {
+    "AP" <v:PointVar> "." <p:QuantifierLevel> => Prop::Logic(LogicProp::Quant(QuantProp::AP(v, Box::new(p)))),
+    "EP" <v:PointVar> "." <p:QuantifierLevel> => Prop::Logic(LogicProp::Quant(QuantProp::EP(v, Box::new(p)))),
+    "AO" <v:OpenVar> "." <p:QuantifierLevel> => Prop::Logic(LogicProp::Quant(QuantProp::AO(v, Box::new(p)))),
+    "EO" <v:OpenVar> "." <p:QuantifierLevel> => Prop::Logic(LogicProp::Quant(QuantProp::EO(v, Box::new(p)))),
+    ImpliesLevel,
+}
+
+/// Precedence 2: Implication (right-associative)
+/// "A => B => C" parses as "A => (B => C)"
+ImpliesLevel: Prop = {
+    <l:OrLevel> "=>" <r:ImpliesLevel> => Prop::Logic(LogicProp::Binary(BinaryProp::Implies(Box::new(l), Box::new(r)))),
+    OrLevel,
+}
+
+/// Precedence 3: Disjunction (left-associative)
+/// "A || B || C" parses as "(A || B) || C"
+OrLevel: Prop = {
+    <l:OrLevel> "||" <r:AndLevel> => Prop::Logic(LogicProp::Binary(BinaryProp::Or(Box::new(l), Box::new(r)))),
+    AndLevel,
+}
+
+/// Precedence 4: Conjunction (left-associative)
+/// "A && B && C" parses as "(A && B) && C"
+AndLevel: Prop = {
+    <l:AndLevel> "&&" <r:UnaryLevel> => Prop::Logic(LogicProp::Binary(BinaryProp::And(Box::new(l), Box::new(r)))),
+    UnaryLevel,
+}
+
+/// Precedence 5: Unary negation (prefix operator)
+/// "!!A" parses as "!(!A)"
+UnaryLevel: Prop = {
+    "!" <p:UnaryLevel> => Prop::Logic(LogicProp::Unary(UnaryProp::Not(Box::new(p)))),
+    PrimaryLevel,
+}
+
+/// Precedence 6: Primary expressions (atoms, macros, parentheses)
+/// Highest precedence level - the building blocks
+PrimaryLevel: Prop = {
+    // Parentheses allow resetting precedence back to the beginning
+    // This enables "A && (EP x. B)" where the quantifier is on the RHS
+    "(" <p:Prop> ")" => p,
+
+    // Point intersection chains are now primary expressions
+    // This is NOT ambiguous with open intersection because PointVar
+    // token is distinct from OpenVar token
+    <p1:PointVar> "inter" <p2:PointVar> <p3:("inter" <PointVar>)?> => {
+        match p3 {
+            Some(p3_var) => Prop::Macro(MacroProp::TriplePointInter(
+                PointExpr::PointVar(p1),
+                PointExpr::PointVar(p2),
+                PointExpr::PointVar(p3_var)
+            )),
+            None => Prop::Macro(MacroProp::PointInter(
+                PointExpr::PointVar(p1),
+                PointExpr::PointVar(p2)
+            )),
+        }
+    },
+
+    // Open intersection chains - treated consistently with point intersection
+    <o1:OpenExpr> "inter" <o2:OpenExpr> <o3:("inter" <OpenExpr>)?> => {
+        match o3 {
+            Some(o3_expr) => Prop::Macro(MacroProp::TripleOpenInter(o1, o2, o3_expr)),
+            None => Prop::Logic(LogicProp::Atomic(AtomicProp::OpenInter(o1, o2))),
+        }
+    },
+
+    // Atomic propositions
+    <p:PointExpr> "in" <o:OpenExpr> => Prop::Logic(LogicProp::Atomic(AtomicProp::PointInOpen(p, o))),
+    "nonempty" <o:OpenExpr> => Prop::Logic(LogicProp::Atomic(AtomicProp::Nonempty(o))),
+
+    // Single-argument macros are treated as primary expressions
+    "transitive" <o:OpenExpr> => Prop::Macro(MacroProp::Transitive(o)),
+    "topen" <o:OpenExpr> => Prop::Macro(MacroProp::Topen(o)),
+    "regular" <p:PointVar> => Prop::Macro(MacroProp::Regular(PointExpr::PointVar(p))),
+    "irregular" <p:PointVar> => Prop::Macro(MacroProp::Irregular(PointExpr::PointVar(p))),
+    "weakly_regular" <p:PointVar> => Prop::Macro(MacroProp::WeaklyRegular(PointExpr::PointVar(p))),
+    "quasiregular" <p:PointVar> => Prop::Macro(MacroProp::Quasiregular(PointExpr::PointVar(p))),
+    "indirectly_regular" <p:PointVar> => Prop::Macro(MacroProp::IndirectlyRegular(PointExpr::PointVar(p))),
+    "hypertransitive" <p:PointVar> => Prop::Macro(MacroProp::Hypertransitive(PointExpr::PointVar(p))),
+    "unconflicted" <p:PointVar> => Prop::Macro(MacroProp::Unconflicted(PointExpr::PointVar(p))),
+    "conflicted" <p:PointVar> => Prop::Macro(MacroProp::Conflicted(PointExpr::PointVar(p))),
+}
+
+/// Point expressions - currently just variables, but extensible
+PointExpr: PointExpr = {
+    PointVar => PointExpr::PointVar(<>),
+}
+
+/// Open expressions: variables, communities, interior complements
+/// These represent sets in the semitopology
+OpenExpr: OpenExpr = {
+    OpenVar => OpenExpr::OpenVar(<>),
+    "K" <point:PointExpr> => OpenExpr::K(point),
+    "IC" <open:OpenExpr> => OpenExpr::IC(Box::new(open)),
+    "(" <open:OpenExpr> ")" => open,
+}
