@@ -162,6 +162,7 @@ The model checker supports a rich proposition language for describing properties
 - `&&`: Logical AND
 - `||`: Logical OR  
 - `=>`: Logical implication
+- `<=>`: Material equivalence (if and only if)
 - `!`: Logical negation
 - `()`: Parentheses for grouping
 
@@ -175,6 +176,10 @@ The model checker supports a rich proposition language for describing properties
 - `x in X`: Point x is in open X
 - `X inter Y`: Open X intersects open Y (their intersection is non-empty)
 - `nonempty X`: Open X is nonempty (contains at least one point)
+- `p != q`: Points p and q are not equal
+- `X != Y`: Opens X and Y are not equal
+- `p = q`: Points p and q are equal
+- `X = Y`: Opens X and Y are equal
 
 **Open Expressions:**
 - `K p`: Community of point p
@@ -228,6 +233,21 @@ p inter q
 # Nonempty property
 nonempty X
 
+# Point inequality
+p != q
+
+# Point equality
+p = q
+
+# Open inequality
+X != Y
+
+# Open equality  
+X = Y
+
+# Material equivalence
+(p in X) <=> (q in Y)
+
 # Built-in predicates
 regular p
 transitive T
@@ -271,6 +291,30 @@ AO X. EO Y. AP x. (x in X) || (X inter Y) => !(x in Y)
 
 # Implication chains
 (x in X) => (X inter Y) => (y in Z)
+
+# Material equivalence (if and only if)
+(x in X) <=> (y in Y)
+# "x is in X if and only if y is in Y"
+
+# Point distinctness
+AP p. AP q. (p != q) => !(p inter q)
+# "For all distinct points p and q, they do not intersect"
+
+# Equivalence with quantifiers
+EO X. (nonempty X) <=> (EP p. p in X)
+# "There exists an open X such that X is nonempty if and only if there exists a point p in X"
+
+# Open distinctness
+AO X. AO Y. (X != Y) => !(X inter Y) || (EP p. (p in X) && !(p in Y))
+# "For all distinct opens X and Y, either they don't intersect or there exists a point in one but not the other"
+
+# Point self-equality
+AP p. p = p
+# "Every point is equal to itself"
+
+# Open self-equality  
+AO X. X = X
+# "Every open is equal to itself"
 ```
 
 ### Example Commands
@@ -379,6 +423,24 @@ cargo run -- check -f "regular_space" -s "{{}, {1}, {2}, {1,2}}" -n 2
 
 # Find spaces with specific properties
 cargo run -- find -f "unconflicted_space" -s 3
+
+# Check point inequality
+cargo run -- check -f "EP p. EP q. p != q" -s "{{}, {1}, {2}, {1, 2}}" -n 2
+
+# Check material equivalence
+cargo run -- check -f "EO X. EO Y. EP p. (p in X) <=> (p in Y)" -s "{{}, {1}, {2}, {1, 2}}" -n 2
+
+# Complex example
+cargo run -- check -f "AP p. AP q. (p != q) <=> !(p inter q)" -s "{{}, {1}, {2}, {1, 2}}" -n 2
+
+# Check open inequality
+cargo run -- check -f "EO X. EO Y. X != Y" -s "{{}, {1}, {2}, {1, 2}}" -n 2
+
+# Check point equality
+cargo run -- check -f "EP p. EP q. p = q" -s "{{}, {1}, {2}, {1, 2}}" -n 2
+
+# Check open equality
+cargo run -- check -f "EO X. EO Y. X = Y" -s "{{}, {1}, {2}, {1, 2}}" -n 2
 ```
 
 ## Expected Outputs

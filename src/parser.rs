@@ -73,6 +73,36 @@ mod tests {
     }
     
     #[test]
+    fn test_a06_point_not_equal() {
+        let result = parse_formula("p != q");
+        assert!(result.is_ok(), "Formula should parse successfully");
+    }
+    
+    #[test] 
+    fn test_a07_iff() {
+        let result = parse_formula("(p in X) <=> (q in Y)");
+        assert!(result.is_ok(), "Formula should parse successfully");
+    }
+    
+    #[test]
+    fn test_a08_open_not_equal() {
+        let result = parse_formula("X != Y");
+        assert!(result.is_ok(), "Formula should parse successfully");
+    }
+    
+    #[test]
+    fn test_a09_point_equal() {
+        let result = parse_formula("p = q");
+        assert!(result.is_ok(), "Formula should parse successfully");
+    }
+    
+    #[test]
+    fn test_a10_open_equal() {
+        let result = parse_formula("X = Y");
+        assert!(result.is_ok(), "Formula should parse successfully");
+    }
+    
+    #[test]
     fn test_a04_point_in_community() {
         let result = parse_formula("y in K x");
         assert!(result.is_ok(), "Formula should parse successfully");
@@ -376,6 +406,36 @@ mod tests {
     #[test]
     fn test_parse_implications() {
         let formula = parse_formula("p in X => q in Y").unwrap();
+        println!("{:?}", formula);
+    }
+    
+    #[test]
+    fn test_parse_iff() {
+        let formula = parse_formula("p in X <=> q in Y").unwrap();
+        println!("{:?}", formula);
+    }
+    
+    #[test]
+    fn test_parse_point_not_equal() {
+        let formula = parse_formula("p != q").unwrap();
+        println!("{:?}", formula);
+    }
+    
+    #[test]
+    fn test_parse_open_not_equal() {
+        let formula = parse_formula("X != Y").unwrap();
+        println!("{:?}", formula);
+    }
+    
+    #[test]
+    fn test_parse_point_equal() {
+        let formula = parse_formula("p = q").unwrap();
+        println!("{:?}", formula);
+    }
+    
+    #[test]
+    fn test_parse_open_equal() {
+        let formula = parse_formula("X = Y").unwrap();
         println!("{:?}", formula);
     }
     

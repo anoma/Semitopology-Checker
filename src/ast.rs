@@ -47,6 +47,8 @@ pub enum BinaryProp {
     Or(Box<Prop>, Box<Prop>),
     /// Logical implication: φ → ψ
     Implies(Box<Prop>, Box<Prop>),
+    /// Material equivalence: φ ↔ ψ
+    Iff(Box<Prop>, Box<Prop>),
 }
 
 /// Unary logical operators
@@ -65,6 +67,14 @@ pub enum AtomicProp {
     OpenInter(OpenExpr, OpenExpr),
     /// Non-emptiness: X ≠ ∅
     Nonempty(OpenExpr),
+    /// Point inequality: p ≠ q
+    PointNotEqual(PointExpr, PointExpr),
+    /// Open inequality: X ≠ Y
+    OpenNotEqual(OpenExpr, OpenExpr),
+    /// Point equality: p = q
+    PointEqual(PointExpr, PointExpr),
+    /// Open equality: X = Y
+    OpenEqual(OpenExpr, OpenExpr),
 }
 
 /// Point expressions - represent individual elements

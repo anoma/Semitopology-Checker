@@ -27,6 +27,15 @@ pub enum Token {
     #[token("!")]
     Not,
     
+    #[token("!=")]
+    NotEqual,
+    
+    #[token("=")]
+    Equal,
+    
+    #[token("<=>")]
+    Iff,
+    
     // Quantifiers
     #[token("AP")]
     AP,

@@ -17,6 +17,9 @@ extern {
         "||" => Token::Or,
         "=>" => Token::Implies,
         "!" => Token::Not,
+        "!=" => Token::NotEqual,
+        "=" => Token::Equal,
+        "<=>" => Token::Iff,
         
         // Quantifiers
         "AP" => Token::AP,
@@ -91,7 +94,14 @@ QuantifierLevel: Prop = {
 /// Precedence 2: Implication (right-associative)
 /// "A => B => C" parses as "A => (B => C)"
 ImpliesLevel: Prop = {
-    <l:OrLevel> "=>" <r:ImpliesLevel> => Prop::Logic(LogicProp::Binary(BinaryProp::Implies(Box::new(l), Box::new(r)))),
+    <l:IffLevel> "=>" <r:ImpliesLevel> => Prop::Logic(LogicProp::Binary(BinaryProp::Implies(Box::new(l), Box::new(r)))),
+    IffLevel,
+}
+
+/// Precedence 2.5: Material equivalence (left-associative)
+/// "A <=> B <=> C" parses as "(A <=> B) <=> C"
+IffLevel: Prop = {
+    <l:IffLevel> "<=>" <r:OrLevel> => Prop::Logic(LogicProp::Binary(BinaryProp::Iff(Box::new(l), Box::new(r)))),
     OrLevel,
 }
 
@@ -151,6 +161,10 @@ PrimaryLevel: Prop = {
     // Atomic propositions
     <p:PointExpr> "in" <o:OpenExpr> => Prop::Logic(LogicProp::Atomic(AtomicProp::PointInOpen(p, o))),
     "nonempty" <o:OpenExpr> => Prop::Logic(LogicProp::Atomic(AtomicProp::Nonempty(o))),
+    <p1:PointExpr> "!=" <p2:PointExpr> => Prop::Logic(LogicProp::Atomic(AtomicProp::PointNotEqual(p1, p2))),
+    <o1:OpenExpr> "!=" <o2:OpenExpr> => Prop::Logic(LogicProp::Atomic(AtomicProp::OpenNotEqual(o1, o2))),
+    <p1:PointExpr> "=" <p2:PointExpr> => Prop::Logic(LogicProp::Atomic(AtomicProp::PointEqual(p1, p2))),
+    <o1:OpenExpr> "=" <o2:OpenExpr> => Prop::Logic(LogicProp::Atomic(AtomicProp::OpenEqual(o1, o2))),
 
     // Single-argument macros are treated as primary expressions
     "transitive" <o:OpenExpr> => Prop::Macro(MacroProp::Transitive(o)),

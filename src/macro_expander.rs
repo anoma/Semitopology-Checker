@@ -93,6 +93,11 @@ impl MacroExpander {
                 let right_expanded = self.expand(*right)?;
                 Ok(Formula::Implies(Box::new(left_expanded), Box::new(right_expanded)))
             }
+            BinaryProp::Iff(left, right) => {
+                let left_expanded = self.expand(*left)?;
+                let right_expanded = self.expand(*right)?;
+                Ok(Formula::Iff(Box::new(left_expanded), Box::new(right_expanded)))
+            }
         }
     }
 
@@ -120,6 +125,26 @@ impl MacroExpander {
             AtomicProp::Nonempty(open_expr) => {
                 let model_open = self.convert_open_expr_to_model(open_expr)?;
                 Ok(Formula::Atom(Atom::OpenNonempty(model_open)))
+            }
+            AtomicProp::PointNotEqual(point_expr1, point_expr2) => {
+                let point_id1 = self.extract_point_id(point_expr1)?;
+                let point_id2 = self.extract_point_id(point_expr2)?;
+                Ok(Formula::Atom(Atom::PointNotEqual(point_id1, point_id2)))
+            }
+            AtomicProp::OpenNotEqual(open_expr1, open_expr2) => {
+                let model_open1 = self.convert_open_expr_to_model(open_expr1)?;
+                let model_open2 = self.convert_open_expr_to_model(open_expr2)?;
+                Ok(Formula::Atom(Atom::OpenNotEqual(model_open1, model_open2)))
+            }
+            AtomicProp::PointEqual(point_expr1, point_expr2) => {
+                let point_id1 = self.extract_point_id(point_expr1)?;
+                let point_id2 = self.extract_point_id(point_expr2)?;
+                Ok(Formula::Atom(Atom::PointEqual(point_id1, point_id2)))
+            }
+            AtomicProp::OpenEqual(open_expr1, open_expr2) => {
+                let model_open1 = self.convert_open_expr_to_model(open_expr1)?;
+                let model_open2 = self.convert_open_expr_to_model(open_expr2)?;
+                Ok(Formula::Atom(Atom::OpenEqual(model_open1, model_open2)))
             }
         }
     }

@@ -24,6 +24,14 @@ pub enum Atom {
     OpenIntersection(OpenExpr, OpenExpr),
     /// Open expression is nonempty
     OpenNonempty(OpenExpr),
+    /// Two points are not equal
+    PointNotEqual(String, String),
+    /// Two open expressions are not equal
+    OpenNotEqual(OpenExpr, OpenExpr),
+    /// Two points are equal
+    PointEqual(String, String),
+    /// Two open expressions are equal
+    OpenEqual(OpenExpr, OpenExpr),
 }
 
 /// Proposition formulas
@@ -39,6 +47,8 @@ pub enum Formula {
     Or(Box<Formula>, Box<Formula>),
     /// Logical implication
     Implies(Box<Formula>, Box<Formula>),
+    /// Material equivalence (if and only if)
+    Iff(Box<Formula>, Box<Formula>),
     /// Universal quantification over points
     ForAllPoints(String, Box<Formula>),
     /// Existential quantification over points
@@ -282,6 +292,46 @@ impl ModelChecker {
                     false
                 }
             }
+            Atom::PointNotEqual(point_var1, point_var2) => {
+                if let (Some(&point1), Some(&point2)) = (
+                    assignment.points.get(point_var1),
+                    assignment.points.get(point_var2)
+                ) {
+                    point1 != point2
+                } else {
+                    false
+                }
+            }
+            Atom::OpenNotEqual(open_expr1, open_expr2) => {
+                if let (Some(open1), Some(open2)) = (
+                    self.eval_open_expr(open_expr1, assignment),
+                    self.eval_open_expr(open_expr2, assignment)
+                ) {
+                    open1 != open2
+                } else {
+                    false
+                }
+            }
+            Atom::PointEqual(point_var1, point_var2) => {
+                if let (Some(&point1), Some(&point2)) = (
+                    assignment.points.get(point_var1),
+                    assignment.points.get(point_var2)
+                ) {
+                    point1 == point2
+                } else {
+                    false
+                }
+            }
+            Atom::OpenEqual(open_expr1, open_expr2) => {
+                if let (Some(open1), Some(open2)) = (
+                    self.eval_open_expr(open_expr1, assignment),
+                    self.eval_open_expr(open_expr2, assignment)
+                ) {
+                    open1 == open2
+                } else {
+                    false
+                }
+            }
         }
     }
     
@@ -336,6 +386,16 @@ impl ModelChecker {
                     return ModelCheckResult::true_result();
                 }
                 self.eval_formula(f2, assignment)
+            }
+            Formula::Iff(f1, f2) => {
+                let result1 = self.eval_formula(f1, assignment);
+                let result2 = self.eval_formula(f2, assignment);
+                // A <=> B is true iff A and B have the same truth value
+                if result1.satisfied == result2.satisfied {
+                    ModelCheckResult::true_result()
+                } else {
+                    ModelCheckResult::false_result()
+                }
             }
             Formula::ForAllPoints(var, f) => {
                 for point in 1..=self.n {
