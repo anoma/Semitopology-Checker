@@ -331,7 +331,7 @@ fn handle_find_command(
     
     for n_val in &config.sizes {
         let start_time = Instant::now();
-        let (results, filename) = if output_to_file {
+        let (results, explored, filename) = if output_to_file {
             search::gen_fam_with_formula(&config, *n_val, &formula)?
         } else {
             search::gen_fam_with_formula_console(&config, *n_val, &formula)?
@@ -341,6 +341,7 @@ fn handle_find_command(
         println!("\nResults for n={}:", n_val);
         let search_type = if config.search_semiframes { "semiframes" } else { "semitopologies" };
         
+        println!("Total {} explored: {}", search_type, explored);
         if output_to_file {
             println!("Total {} satisfying formula: {}", search_type, results);
             println!("Results saved in: {}", filename);

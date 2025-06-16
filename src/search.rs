@@ -2,7 +2,7 @@
 
 use crate::canon::{Family, canonicalize, canonical_delete, family_to_str};
 use crate::model_checker::{ModelChecker, Formula};
-use std::collections::{HashMap, HashSet, BTreeSet};
+use std::collections::{HashMap, BTreeSet};
 use std::fs::File;
 use std::io::{Write as IoWrite, BufWriter};
 
@@ -44,26 +44,25 @@ fn has_all_distinguished(family: &Family, n: usize) -> bool {
 
 /// Generates all canonical extensions of a family
 fn extend(family: &Family, n: usize, cache: &mut HashMap<Family, Family>, max_cache_size: usize) -> Vec<Family> {
-    let mut extended_families = Vec::new();
-    
+    let mut extended = BTreeSet::new();      // use a set, not a Vec
+
     for s_to_add in 1..(1u32 << n) {
         if family.contains(&s_to_add) {
             continue;
         }
-        
-        let is_ideal_extension = family.iter().all(|&x| family.contains(&(x | s_to_add)));
-        
-        if is_ideal_extension {
+
+        // upward‑closure test (as before)
+        if family.iter().all(|&x| family.contains(&(x | s_to_add))) {
             let mut new_family = family.clone();
             new_family.insert(s_to_add);
-            let c_new_family = canonicalize(&new_family, n, cache, max_cache_size);
-            if canonical_delete(&c_new_family, n, cache, max_cache_size) == *family {
-                extended_families.push(c_new_family);
+
+            let c_new = canonicalize(&new_family, n, cache, max_cache_size);
+            if canonical_delete(&c_new, n, cache, max_cache_size) == *family {
+                extended.insert(c_new);      // duplicates silently ignored
             }
         }
     }
-    
-    extended_families
+    extended.into_iter().collect()
 }
 
 fn process_and_dump_batch(
@@ -120,7 +119,6 @@ fn process_and_dump_batch(
 fn dfs_explore(
     family: &Family,
     n: usize,
-    visited_families: &mut HashSet<Family>,
     families_to_process: &mut Vec<Family>,
     batch_size: usize,
     outfile: &mut BufWriter<File>,
@@ -130,48 +128,47 @@ fn dfs_explore(
     max_cache_size: usize,
     search_semiframes: bool,
     limit: usize,
+    total_explored: &mut usize,
 ) -> Result<bool, Box<dyn std::error::Error>> {
     let new_families = extend(family, n, cache, max_cache_size);
     
     for nf in new_families {
-        if !visited_families.contains(&nf) {
-            visited_families.insert(nf.clone());
-            families_to_process.push(nf.clone());
-            
-            if visited_families.len() % log_interval == 0 {
-                print!(
-                    "\r  Exploring... Total visited: {}. Batch size: {}/{}",
-                    visited_families.len(),
-                    families_to_process.len(),
-                    batch_size
-                );
-                std::io::stdout().flush()?;
-            }
-            
-            if families_to_process.len() >= batch_size {
-                let hit_limit = process_and_dump_batch(families_to_process, n, outfile, total_found_counter, search_semiframes, limit)?;
-                if hit_limit {
-                    return Ok(true);
-                }
-            }
-            
-            let hit_limit = dfs_explore(
-                &nf,
-                n,
-                visited_families,
-                families_to_process,
-                batch_size,
-                outfile,
-                total_found_counter,
-                log_interval,
-                cache,
-                max_cache_size,
-                search_semiframes,
-                limit,
-            )?;
+        families_to_process.push(nf.clone());
+        *total_explored += 1;
+        
+        if *total_explored % log_interval == 0 {
+            print!(
+                "\r  Exploring... Total explored: {}. Batch size: {}/{}",
+                *total_explored,
+                families_to_process.len(),
+                batch_size
+            );
+            std::io::stdout().flush()?;
+        }
+        
+        if families_to_process.len() >= batch_size {
+            let hit_limit = process_and_dump_batch(families_to_process, n, outfile, total_found_counter, search_semiframes, limit)?;
             if hit_limit {
                 return Ok(true);
             }
+        }
+        
+        let hit_limit = dfs_explore(
+            &nf,
+            n,
+            families_to_process,
+            batch_size,
+            outfile,
+            total_found_counter,
+            log_interval,
+            cache,
+            max_cache_size,
+            search_semiframes,
+            limit,
+            total_explored,
+        )?;
+        if hit_limit {
+            return Ok(true);
         }
     }
     
@@ -195,9 +192,9 @@ pub fn gen_fam(config: &Config, n: usize) -> Result<(usize, String), Box<dyn std
     }
 
     let mut cache = HashMap::new();
-    let mut visited_families = HashSet::new();
     let mut families_to_process = Vec::new();
     let mut total_found_counter = 0;
+    let mut total_explored = 0;
     
     let start_family = if let Some(ref custom_start) = config.starting_family {
         custom_start.clone()
@@ -210,7 +207,6 @@ pub fn gen_fam(config: &Config, n: usize) -> Result<(usize, String), Box<dyn std
     
     println!("  Starting family: {}", family_to_str(&start_family, n));
     
-    visited_families.insert(start_family.clone());
     families_to_process.push(start_family.clone());
 
     let file = File::create(&outfile_path)?;
@@ -219,7 +215,6 @@ pub fn gen_fam(config: &Config, n: usize) -> Result<(usize, String), Box<dyn std
     let hit_limit = dfs_explore(
         &start_family,
         n,
-        &mut visited_families,
         &mut families_to_process,
         config.batch_size,
         &mut outfile,
@@ -229,6 +224,7 @@ pub fn gen_fam(config: &Config, n: usize) -> Result<(usize, String), Box<dyn std
         config.cache_size,
         config.search_semiframes,
         config.limit,
+        &mut total_explored,
     )?;
 
     if !hit_limit {
@@ -306,7 +302,6 @@ fn process_and_dump_batch_with_formula(
 fn dfs_explore_with_formula(
     family: &Family,
     n: usize,
-    visited_families: &mut HashSet<Family>,
     families_to_process: &mut Vec<Family>,
     batch_size: usize,
     outfile: &mut BufWriter<File>,
@@ -317,52 +312,51 @@ fn dfs_explore_with_formula(
     search_semiframes: bool,
     limit: usize,
     formula: &Formula,
+    total_explored: &mut usize,
 ) -> Result<bool, Box<dyn std::error::Error>> {
     let new_families = extend(family, n, cache, max_cache_size);
     
     for nf in new_families {
-        if !visited_families.contains(&nf) {
-            visited_families.insert(nf.clone());
-            families_to_process.push(nf.clone());
-            
-            if visited_families.len() % log_interval == 0 {
-                print!(
-                    "\r  Exploring... Total visited: {}. Batch size: {}/{}",
-                    visited_families.len(),
-                    families_to_process.len(),
-                    batch_size
-                );
-                std::io::stdout().flush()?;
-            }
-            
-            if families_to_process.len() >= batch_size {
-                let hit_limit = process_and_dump_batch_with_formula(
-                    families_to_process, n, outfile, total_found_counter, 
-                    search_semiframes, limit, formula
-                )?;
-                if hit_limit {
-                    return Ok(true);
-                }
-            }
-            
-            let hit_limit = dfs_explore_with_formula(
-                &nf,
-                n,
-                visited_families,
-                families_to_process,
-                batch_size,
-                outfile,
-                total_found_counter,
-                log_interval,
-                cache,
-                max_cache_size,
-                search_semiframes,
-                limit,
-                formula,
+        families_to_process.push(nf.clone());
+        *total_explored += 1;
+        
+        if *total_explored % log_interval == 0 {
+            print!(
+                "\r  Exploring... Total explored: {}. Batch size: {}/{}",
+                *total_explored,
+                families_to_process.len(),
+                batch_size
+            );
+            std::io::stdout().flush()?;
+        }
+        
+        if families_to_process.len() >= batch_size {
+            let hit_limit = process_and_dump_batch_with_formula(
+                families_to_process, n, outfile, total_found_counter, 
+                search_semiframes, limit, formula
             )?;
             if hit_limit {
                 return Ok(true);
             }
+        }
+        
+        let hit_limit = dfs_explore_with_formula(
+            &nf,
+            n,
+            families_to_process,
+            batch_size,
+            outfile,
+            total_found_counter,
+            log_interval,
+            cache,
+            max_cache_size,
+            search_semiframes,
+            limit,
+            formula,
+            total_explored,
+        )?;
+        if hit_limit {
+            return Ok(true);
         }
     }
     
@@ -370,7 +364,7 @@ fn dfs_explore_with_formula(
 }
 
 /// Main function to generate all families satisfying a formula for given n
-pub fn gen_fam_with_formula(config: &Config, n: usize, formula: &Formula) -> Result<(usize, String), Box<dyn std::error::Error>> {
+pub fn gen_fam_with_formula(config: &Config, n: usize, formula: &Formula) -> Result<(usize, usize, String), Box<dyn std::error::Error>> {
     let search_type = if config.search_semiframes { "semiframes" } else { "semitopologies" };
     println!("--- Generating {} satisfying formula for n={} (Rust DFS with Batching & Caching) ---", search_type, n);
     
@@ -382,13 +376,13 @@ pub fn gen_fam_with_formula(config: &Config, n: usize, formula: &Formula) -> Res
     println!("  Results will be saved to: {}", outfile_path);
     
     if n == 0 {
-        return Ok((0, outfile_path));
+        return Ok((0, 0, outfile_path));
     }
 
     let mut cache = HashMap::new();
-    let mut visited_families = HashSet::new();
     let mut families_to_process = Vec::new();
     let mut total_found_counter = 0;
+    let mut total_explored = 0;
     
     let start_family = if let Some(ref custom_start) = config.starting_family {
         custom_start.clone()
@@ -401,7 +395,6 @@ pub fn gen_fam_with_formula(config: &Config, n: usize, formula: &Formula) -> Res
     
     println!("  Starting family: {}", family_to_str(&start_family, n));
     
-    visited_families.insert(start_family.clone());
     families_to_process.push(start_family.clone());
 
     let file = File::create(&outfile_path)?;
@@ -410,7 +403,6 @@ pub fn gen_fam_with_formula(config: &Config, n: usize, formula: &Formula) -> Res
     let hit_limit = dfs_explore_with_formula(
         &start_family,
         n,
-        &mut visited_families,
         &mut families_to_process,
         config.batch_size,
         &mut outfile,
@@ -421,6 +413,7 @@ pub fn gen_fam_with_formula(config: &Config, n: usize, formula: &Formula) -> Res
         config.search_semiframes,
         config.limit,
         formula,
+        &mut total_explored,
     )?;
 
     if !hit_limit {
@@ -436,14 +429,13 @@ pub fn gen_fam_with_formula(config: &Config, n: usize, formula: &Formula) -> Res
     outfile.flush()?;
     println!("  Done.");
     
-    Ok((total_found_counter, outfile_path))
+    Ok((total_found_counter, total_explored, outfile_path))
 }
 
 
 fn dfs_explore_with_formula_console(
     family: &Family,
     n: usize,
-    visited_families: &mut HashSet<Family>,
     total_found_counter: &mut usize,
     log_interval: usize,
     cache: &mut HashMap<Family, Family>,
@@ -451,6 +443,7 @@ fn dfs_explore_with_formula_console(
     search_semiframes: bool,
     limit: usize,
     formula: &Formula,
+    total_explored: &mut usize,
 ) -> Result<bool, Box<dyn std::error::Error>> {
     // Check current family immediately
     let base_filter = if search_semiframes {
@@ -478,33 +471,31 @@ fn dfs_explore_with_formula_console(
     let new_families = extend(family, n, cache, max_cache_size);
     
     for nf in new_families {
-        if !visited_families.contains(&nf) {
-            visited_families.insert(nf.clone());
-            
-            if visited_families.len() % log_interval == 0 {
-                print!(
-                    "\r  Exploring... Total visited: {}. Found so far: {}",
-                    visited_families.len(),
-                    total_found_counter
-                );
-                std::io::stdout().flush()?;
-            }
-            
-            let hit_limit = dfs_explore_with_formula_console(
-                &nf,
-                n,
-                visited_families,
-                total_found_counter,
-                log_interval,
-                cache,
-                max_cache_size,
-                search_semiframes,
-                limit,
-                formula,
-            )?;
-            if hit_limit {
-                return Ok(true);
-            }
+        *total_explored += 1;
+        
+        if *total_explored % log_interval == 0 {
+            print!(
+                "\r  Exploring... Total explored: {}. Found so far: {}",
+                *total_explored,
+                total_found_counter
+            );
+            std::io::stdout().flush()?;
+        }
+        
+        let hit_limit = dfs_explore_with_formula_console(
+            &nf,
+            n,
+            total_found_counter,
+            log_interval,
+            cache,
+            max_cache_size,
+            search_semiframes,
+            limit,
+            formula,
+            total_explored,
+        )?;
+        if hit_limit {
+            return Ok(true);
         }
     }
     
@@ -512,7 +503,7 @@ fn dfs_explore_with_formula_console(
 }
 
 /// Main function to generate all families satisfying a formula for given n (console output)
-pub fn gen_fam_with_formula_console(config: &Config, n: usize, formula: &Formula) -> Result<(usize, String), Box<dyn std::error::Error>> {
+pub fn gen_fam_with_formula_console(config: &Config, n: usize, formula: &Formula) -> Result<(usize, usize, String), Box<dyn std::error::Error>> {
     let search_type = if config.search_semiframes { "semiframes" } else { "semitopologies" };
     println!("--- Streaming {} satisfying formula for n={} ---", search_type, n);
     
@@ -522,12 +513,12 @@ pub fn gen_fam_with_formula_console(config: &Config, n: usize, formula: &Formula
              if config.limit == 0 { "unlimited".to_string() } else { config.limit.to_string() });
     
     if n == 0 {
-        return Ok((0, "console".to_string()));
+        return Ok((0, 0, "console".to_string()));
     }
 
     let mut cache = HashMap::new();
-    let mut visited_families = HashSet::new();
     let mut total_found_counter = 0;
+    let mut total_explored = 0;
     
     let start_family = if let Some(ref custom_start) = config.starting_family {
         custom_start.clone()
@@ -540,13 +531,10 @@ pub fn gen_fam_with_formula_console(config: &Config, n: usize, formula: &Formula
     
     println!("  Starting family: {}", family_to_str(&start_family, n));
     println!();  // Add blank line before results
-    
-    visited_families.insert(start_family.clone());
 
     let hit_limit = dfs_explore_with_formula_console(
         &start_family,
         n,
-        &mut visited_families,
         &mut total_found_counter,
         config.log_interval,
         &mut cache,
@@ -554,6 +542,7 @@ pub fn gen_fam_with_formula_console(config: &Config, n: usize, formula: &Formula
         config.search_semiframes,
         config.limit,
         formula,
+        &mut total_explored,
     )?;
 
     if hit_limit {
@@ -564,5 +553,5 @@ pub fn gen_fam_with_formula_console(config: &Config, n: usize, formula: &Formula
 
     println!("  Done.");
     
-    Ok((total_found_counter, "console".to_string()))
+    Ok((total_found_counter, total_explored, "console".to_string()))
 }
