@@ -9,6 +9,9 @@ bitvec = "1.0"
 clap = { version = "4.0", features = ["derive"] }
 lalrpop-util = "0.20"
 logos = "0.14"
+rayon = "1.9"
+dashmap = "5.5"
+crossbeam-channel = "0.5"
 
 [build-dependencies]
 lalrpop = "0.20"

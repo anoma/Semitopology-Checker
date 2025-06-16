@@ -16,8 +16,8 @@ The primary use case is finding structures with specific topological properties 
 - **Formula Search**: Find semitopologies that satisfy specific logical formulas
 - **Canonicalization**: Canonicalize individual semitopologies to their standard form
 - **Canonical Graph Labeling**: Uses nauty library for efficient isomorphism checking
-- **Batched Processing**: Memory-efficient processing with configurable batch sizes
-- **Caching**: Configurable canonicalization cache for performance optimization
+- **Parallel Processing**: Multi-threaded search with configurable thread count
+- **Progress Monitoring**: Real-time progress reporting with configurable intervals
 - **Range Support**: Search single sizes or ranges of sizes
 - **Custom Starting Points**: Specify custom starting families
 - **Output Control**: Configurable output files and generation limits
@@ -52,6 +52,9 @@ cargo run -- search -s 1-5
 
 # Search for semiframes instead of semitopologies
 cargo run -- search -s 3 --semiframes
+
+# Search using 4 threads for parallel processing
+cargo run -- search -s 4 -t 4
 ```
 
 ### Canon Command
@@ -97,6 +100,12 @@ cargo run -- find -f "AO X. x in X" -s 3 -o "results_n{n}.txt"
 
 # Search for semiframes satisfying a formula
 cargo run -- find -f "EP x. AO X. x in X" -s 4 -l 10 --semiframes
+
+# Search using multiple threads
+cargo run -- find -f "EO X. EP x. x in X" -s 4 -t 8
+
+# Suppress output of found semitopologies (only show count)
+cargo run -- find -f "EO X. EP x. x in X" -s 3 -l 10 -q
 ```
 
 ### Search Command Options
@@ -104,13 +113,12 @@ cargo run -- find -f "EP x. AO X. x in X" -s 4 -l 10 --semiframes
 | Option | Short | Description | Default |
 |--------|-------|-------------|---------|
 | `--size` | `-s` | Size to search (number or range like "3-5") | `1-6` |
-| `--cache-size` | `-c` | Maximum cache size (0 to disable) | `10000` |
 | `--limit` | `-l` | Hard limit on families to generate (0 for unlimited) | `0` |
 | `--output` | `-o` | Output file pattern (use `{n}` for size placeholder) | `distinguished_families_n{n}.txt` |
 | `--semiframes` | | Search for semiframes instead of semitopologies | `false` |
 | `--starting-family` | | Starting family as semitopology (e.g., "{{1}, {1,2}}") | `{{1,2,...,n}}` |
-| `--batch-size` | `-b` | Batch size for processing | `100000` |
 | `--log-interval` | | Log interval for progress reporting | `10000` |
+| `--threads` | `-t` | Number of threads to use (1 for sequential, >1 for parallel) | `1` |
 
 ### Canon Command Options
 
@@ -135,11 +143,11 @@ cargo run -- find -f "EP x. AO X. x in X" -s 4 -l 10 --semiframes
 | `--size` | `-s` | Size to search (number or range like "3-5") | `1-6` |
 | `--limit` | `-l` | Maximum number of results to find | `1` |
 | `--output` | `-o` | Output file pattern (optional, use {n} for size placeholder) | Console output |
-| `--cache-size` | `-c` | Maximum cache size (0 to disable) | `10000` |
+| `--quiet` | `-q` | Suppress printing of found semitopologies (only show count) | `false` |
 | `--semiframes` | | Search for semiframes instead of semitopologies | `false` |
 | `--starting-family` | | Starting family as semitopology | `{{1,2,...,n}}` |
-| `--batch-size` | `-b` | Batch size for processing | `100000` |
 | `--log-interval` | | Log interval for progress reporting | `10000` |
+| `--threads` | `-t` | Number of threads to use (1 for sequential, >1 for parallel) | `1` |
 
 ### Global Options
 
@@ -335,11 +343,8 @@ cargo run -- search -s 3 --semiframes
 #### Performance Tuning
 
 ```bash
-# Disable caching for large searches
-cargo run -- search -s 6 -c 0
-
-# Use smaller batch size for memory-constrained systems
-cargo run -- search -s 5 -b 1000
+# Use parallel processing for faster searches
+cargo run -- search -s 5 -t 8
 
 # Increase log frequency for more progress updates
 cargo run -- search -s 5 --log-interval 1000
@@ -423,6 +428,9 @@ cargo run -- check -f "regular_space" -s "{{}, {1}, {2}, {1,2}}" -n 2
 
 # Find spaces with specific properties
 cargo run -- find -f "unconflicted_space" -s 3
+
+# Find multiple results but only show count (quiet mode)
+cargo run -- find -f "EO X. EP x. x in X" -s 3 -l 10 -q
 
 # Check point inequality
 cargo run -- check -f "EP p. EP q. p != q" -s "{{}, {1}, {2}, {1, 2}}" -n 2
@@ -521,42 +529,43 @@ $ cargo run -- find -f "EO X. EP x. x in X" -s 3 -l 3
 ```
 ```
 Searching for semitopologies satisfying formula: EO X. EP x. x in X
---- Streaming semitopologies satisfying formula for n=3 ---
-  Log interval: 10000. Cache size: 10000. Limit: 3.
-  Starting family: {{}, {1, 2, 3}}
+--- Streaming semitopologies satisfying formula for n=3 (threads: 1) ---
+  Starting family: {{1, 2, 3}}
 
 {{}, {1, 2, 3}}
-{{}, {1}, {1, 2, 3}}
 {{}, {1, 2}, {1, 2, 3}}
+{{}, {1, 3}, {2, 3}, {1, 2, 3}}
 
   Search stopped: reached limit of 3 families.
   Done.
 
 Results for n=3:
+Total semitopologies explored: 3
 Total semitopologies satisfying formula: 3
+Time taken: 0.001 seconds
 ```
 
 ### Performance Characteristics
 
-| Size | Semiframes Count | Semitopologies Count | Time (measured) | Memory Usage |
-|------|------------------|---------------------|-----------------|--------------|
-| n=1  | 1                | 1                   | <0.01s          | Trivial      |
-| n=2  | 2                | 3                   | <0.01s          | Trivial      |
-| n=3  | 10               | 14                  | <0.01s          | Trivial      |
-| n=4  | 138              | 165                 | <0.01s          | Trivial          |
-| n=5  | 14,005           | 14,480              | ~0.43s          | Low       |
-| n=6  | ~150 million (est) | ~150 million (est) | hours?        | High (may run out of memory) |
-| n=7  | ~1.5 Trillion (est) | ~1.5 Trillion (est) | years?      | Very High (hope you have a lot of ram) |
+| Size | Semiframes Count | Semitopologies Count | Time (measured) |
+|------|------------------|---------------------|-----------------|
+| n=1  | 1                | 1                   | <0.01s          |
+| n=2  | 2                | 3                   | <0.01s          |
+| n=3  | 10               | 14                  | <0.01s          |
+| n=4  | 138              | 165                 | <0.01s          |
+| n=5  | 14,005           | 14,480              | ~0.43s          |
+| n=6  | 108,216,528      | 108,281,182         | ~6 hours        |
+| n=7  | ~1.5 Trillion (est) | ~1.5 Trillion (est) | years?      |
 
-*Performance measured on the current implementation. Times may vary by system.*
+*Performance measured on the current implementation running single-threaded on an XPS 13. Times may vary by system.*
 
 ## Algorithm Details
 
 1. **Canonical Search**: Uses nauty library to ensure each family is found exactly once up to isomorphism
 2. **Depth-First Exploration**: Systematically explores all possible extensions of families
 3. **Union-Closure**: Only considers families that are closed under union operations
-4. **Batched Processing**: Processes families in batches to manage memory usage
-5. **Caching**: Caches canonical forms to avoid redundant computations
+4. **Parallel Processing**: Uses work-stealing parallelism with configurable thread count
+5. **Progress Monitoring**: Real-time progress reporting during long searches
 
 ## Output Format
 
@@ -570,13 +579,12 @@ Each line represents one distinct family up to isomorphism.
 
 ## Performance Tips
 
-- **Large searches**: Use `--cache-size 0` to disable caching and save memory
-- **Memory constraints**: Reduce `--batch-size` to process smaller batches
+- **Parallel processing**: Use `--threads` > 1 for faster searches on multi-core systems
 - **Time limits**: Use `--limit` to cap the number of results
 - **Progress monitoring**: Decrease `--log-interval` for more frequent updates
 
 ## Troubleshooting
 
-- If memory usage is high, try `--cache-size 0` or smaller `--batch-size`
+- If memory usage is high, try sequential mode (`--threads 1`) with smaller `--batch-size`
 - For very large searches, consider using `--limit` to get partial results
 - Starting family elements must be valid for the given size n (1 ≤ element ≤ n)

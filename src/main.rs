@@ -59,6 +59,10 @@ enum Commands {
         /// Log interval for progress reporting
         #[arg(long, default_value = "10000")]
         log_interval: usize,
+
+        /// Number of threads to use (1 for sequential, >1 for parallel)
+        #[arg(short = 't', long = "threads", default_value = "1")]
+        threads: usize,
     },
     /// Canonicalize a given semitopology
     Canon {
@@ -121,6 +125,14 @@ enum Commands {
         /// Log interval for progress reporting
         #[arg(long, default_value = "10000")]
         log_interval: usize,
+
+        /// Number of threads to use (1 for sequential, >1 for parallel)
+        #[arg(short = 't', long = "threads", default_value = "1")]
+        threads: usize,
+
+        /// Suppress printing of found semitopologies (only show count)
+        #[arg(short = 'q', long)]
+        quiet: bool,
     },
 }
 
@@ -155,13 +167,12 @@ fn parse_starting_family(family_str: &str, n: usize) -> Result<Family, String> {
 
 fn parse_search_args(
     size: String,
-    cache_size: usize,
     limit: usize,
     output: String,
     semiframes: bool,
     starting_family: Option<String>,
-    batch_size: usize,
     log_interval: usize,
+    threads: usize,
 ) -> Result<Config, String> {
     let sizes = parse_size_range(&size)?;
     
@@ -177,29 +188,27 @@ fn parse_search_args(
     
     Ok(Config {
         sizes,
-        cache_size,
         limit,
         output_pattern: output,
         search_semiframes: semiframes,
         starting_family,
-        batch_size,
         log_interval,
+        num_threads: threads,
     })
 }
 
 fn handle_search_command(
     size: String,
-    cache_size: usize,
     limit: usize,
     output: String,
     semiframes: bool,
     starting_family: Option<String>,
-    batch_size: usize,
     log_interval: usize,
+    threads: usize,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let config = parse_search_args(
-        size, cache_size, limit, output, semiframes,
-        starting_family, batch_size, log_interval
+        size, limit, output, semiframes,
+        starting_family, log_interval, threads
     ).map_err(|e| format!("Error parsing arguments: {}", e))?;
     
     let total_start_time = Instant::now();
@@ -303,13 +312,13 @@ fn handle_check_command(formula_str: String, semitopology_str: String, size: Opt
 fn handle_find_command(
     formula_str: String,
     size: String,
-    cache_size: usize,
     limit: usize,
     output: Option<String>,
     semiframes: bool,
     starting_family: Option<String>,
-    batch_size: usize,
     log_interval: usize,
+    threads: usize,
+    quiet: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Parse the formula first
     let formula = parse_formula(&formula_str)
@@ -323,8 +332,8 @@ fn handle_find_command(
     
     // Create a modified config that includes the formula
     let config = parse_search_args(
-        size, cache_size, limit, output_pattern, semiframes,
-        starting_family, batch_size, log_interval
+        size, limit, output_pattern, semiframes,
+        starting_family, log_interval, threads
     ).map_err(|e| format!("Error parsing arguments: {}", e))?;
     
     let total_start_time = Instant::now();
@@ -334,7 +343,7 @@ fn handle_find_command(
         let (results, explored, filename) = if output_to_file {
             search::gen_fam_with_formula(&config, *n_val, &formula)?
         } else {
-            search::gen_fam_with_formula_console(&config, *n_val, &formula)?
+            search::gen_fam_with_formula_console(&config, *n_val, &formula, quiet)?
         };
         let end_time = Instant::now();
         
@@ -364,12 +373,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     match args.command {
         Commands::Search { 
-            size, cache_size, limit, output, semiframes, 
-            starting_family, batch_size, log_interval 
+            size, limit, output, semiframes, 
+            starting_family, log_interval, threads, ..
         } => {
             handle_search_command(
-                size, cache_size, limit, output, semiframes,
-                starting_family, batch_size, log_interval
+                size, limit, output, semiframes,
+                starting_family, log_interval, threads
             )
         }
         Commands::Canon { family, size } => {
@@ -379,12 +388,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             handle_check_command(formula, semitopology, size)
         }
         Commands::Find { 
-            formula, size, cache_size, limit, output, semiframes, 
-            starting_family, batch_size, log_interval 
+            formula, size, limit, output, semiframes, 
+            starting_family, log_interval, threads, quiet, ..
         } => {
             handle_find_command(
-                formula, size, cache_size, limit, output, semiframes,
-                starting_family, batch_size, log_interval
+                formula, size, limit, output, semiframes,
+                starting_family, log_interval, threads, quiet
             )
         }
     }
