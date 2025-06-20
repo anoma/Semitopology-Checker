@@ -311,6 +311,35 @@ mod tests {
         assert!(result.is_ok(), "Formula should parse successfully");
     }
     
+    // Space macros in logical expressions (regression test)
+    #[test]
+    fn test_space_macros_with_logical_operators() {
+        // Test that space macros can be combined with &&
+        let result = parse_formula("quasiregular_space && unconflicted_space");
+        assert!(result.is_ok(), "Space macros should work with logical operators");
+        
+        // Test complex formula from the bug report
+        let result = parse_formula("quasiregular_space && unconflicted_space && (AP p. ! (hypertransitive p))");
+        assert!(result.is_ok(), "Complex formula with space macros and quantifiers should parse");
+        
+        // Test space macros with all logical operators
+        let result = parse_formula("regular_space || irregular_space");
+        assert!(result.is_ok(), "Space macros should work with OR");
+        
+        let result = parse_formula("regular_space => hypertransitive_space");
+        assert!(result.is_ok(), "Space macros should work with implication");
+        
+        let result = parse_formula("!conflicted_space");
+        assert!(result.is_ok(), "Space macros should work with negation");
+        
+        let result = parse_formula("regular_space <=> weakly_regular_space");
+        assert!(result.is_ok(), "Space macros should work with iff");
+        
+        // Test mixing space macros with point predicates
+        let result = parse_formula("regular_space && (AP p. regular p)");
+        assert!(result.is_ok(), "Space macros should mix with point predicates");
+    }
+    
     // Error handling tests (expected failures)
     #[test]
     fn test_e01_missing_dot() {

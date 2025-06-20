@@ -64,19 +64,8 @@ extern {
 }
 
 /// Unified precedence cascade entry point
-/// Space macros are handled first, then the logical expression cascade
 pub Prop: Prop = {
-    // Top-level space macros are special and don't mix with logic
-    "conflicted_space" => Prop::Macro(MacroProp::ConflictedSpace),
-    "unconflicted_space" => Prop::Macro(MacroProp::UnconflictedSpace),
-    "regular_space" => Prop::Macro(MacroProp::RegularSpace),
-    "irregular_space" => Prop::Macro(MacroProp::IrregularSpace),
-    "weakly_regular_space" => Prop::Macro(MacroProp::WeaklyRegularSpace),
-    "quasiregular_space" => Prop::Macro(MacroProp::QuasiregularSpace),
-    "indirectly_regular_space" => Prop::Macro(MacroProp::IndirectlyRegularSpace),
-    "hypertransitive_space" => Prop::Macro(MacroProp::HypertransitiveSpace),
-    
-    // All other expressions start at the quantifier level
+    // All expressions start at the quantifier level
     QuantifierLevel,
 }
 
@@ -177,6 +166,16 @@ PrimaryLevel: Prop = {
     "hypertransitive" <p:PointVar> => Prop::Macro(MacroProp::Hypertransitive(PointExpr::PointVar(p))),
     "unconflicted" <p:PointVar> => Prop::Macro(MacroProp::Unconflicted(PointExpr::PointVar(p))),
     "conflicted" <p:PointVar> => Prop::Macro(MacroProp::Conflicted(PointExpr::PointVar(p))),
+    
+    // Space-wide macros (zero-argument) are also primary expressions
+    "conflicted_space" => Prop::Macro(MacroProp::ConflictedSpace),
+    "unconflicted_space" => Prop::Macro(MacroProp::UnconflictedSpace),
+    "regular_space" => Prop::Macro(MacroProp::RegularSpace),
+    "irregular_space" => Prop::Macro(MacroProp::IrregularSpace),
+    "weakly_regular_space" => Prop::Macro(MacroProp::WeaklyRegularSpace),
+    "quasiregular_space" => Prop::Macro(MacroProp::QuasiregularSpace),
+    "indirectly_regular_space" => Prop::Macro(MacroProp::IndirectlyRegularSpace),
+    "hypertransitive_space" => Prop::Macro(MacroProp::HypertransitiveSpace),
 }
 
 /// Point expressions - currently just variables, but extensible
